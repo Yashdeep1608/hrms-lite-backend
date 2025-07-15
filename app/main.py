@@ -65,6 +65,7 @@ app.openapi = custom_openapi
 
 # Include routers with dependency-based authentication
 app.include_router(auth.router)
+app.include_router(business.public_router)
 app.include_router(business.router)
 app.include_router(user.router)
 app.include_router(location.router)

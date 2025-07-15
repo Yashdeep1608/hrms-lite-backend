@@ -23,7 +23,7 @@ class User(Base):
     business_id = Column(Integer, ForeignKey('businesses.id'), nullable=True)  # 🔁 Moved here
     preferred_language = Column(String,default = 'en')
     parent_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    referral_code = Column(String(16), unique=True, nullable=False)
+    referral_code = Column(String(16),unique=True ,nullable=False)
     referred_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -33,8 +33,9 @@ class User(Base):
     profile_image = Column(String,nullable=True)
 
     roles = relationship("Role", back_populates="users")
-    parent_user = relationship("User", remote_side=[id], backref="downlines")
-    referrer = relationship("User", remote_side=[id], foreign_keys=[referred_by], backref="referrals")
+    parent_user = relationship("User",remote_side=[id],foreign_keys=[parent_user_id],backref="downlines")
+    business = relationship("Business", back_populates="users")
+    referrer = relationship("User",remote_side=[id],foreign_keys=[referred_by],backref="referrals")
     user_otps = relationship("UserOTP", back_populates="users")
     user_permissions = relationship("UserPermission", back_populates="users")
     created_tags = relationship("Tag", back_populates="creator", cascade="all, delete-orphan")

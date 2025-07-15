@@ -11,12 +11,17 @@ from app.helpers.translator import Translator
 from fastapi.encoders import jsonable_encoder # type: ignore
 
 translator = Translator()
+public_router = APIRouter(
+    prefix="/api/admin/v1/business",
+    tags=["Business"],
+)
 router = APIRouter(
     prefix="/api/admin/v1/business",
     tags=["Business"],
     dependencies=[Depends(get_current_user)]
 )
-@router.get("/business-categories",dependencies=[])
+
+@public_router.get("/business-categories")
 def get_business_categories(request:Request,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
@@ -28,7 +33,7 @@ def get_business_categories(request:Request,db: Session = Depends(get_db)):
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
 
-@router.post("/register",dependencies=[])
+@public_router.post("/register")
 def register_business(business: BusinessCreate, request: Request,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
