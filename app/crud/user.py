@@ -1,18 +1,17 @@
-import secrets
 from datetime import timedelta, datetime, timezone
 import random
 import string
 from sqlalchemy.orm import Session
-from app.models.plan import Plan
 from app.models.user import User
 from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword, CreateOrder, UserCreate, UserOut, UserUpdate
+from app.schemas.user import ChangePassword,UserCreate, UserOut, UserUpdate
 from app.core.security import *
 from app.models.enums import RoleTypeEnum
 from app.models.permission import Permission  # Adjust import if needed
 from app.models.user_permission import UserPermission  # Adjust import if needed
 from app.models.business import Business  # Adjust import if needed
 from app.schemas.business import BusinessOut
+from app.core.config import settings
 
 
 def generate_unique_referral_code(db: Session, length: int = 8) -> str:
@@ -74,7 +73,10 @@ def get_user_by_email_or_phone(db: Session, email_or_phone: str):
 
 # Create OTP for User
 def create_otp_for_user(otp_type: str,db: Session, user: User):
-    otp_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    while True:
+        otp_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        if otp_code != settings.ADMIN_BYPASS_OTP:
+            break
 
     user_otp = UserOTP(
         user_id=user.id,
@@ -96,25 +98,25 @@ def mark_otp_as_sent(db: Session, user_otp: UserOTP):
     db.refresh(user_otp)
     return user_otp
 
-# Verify OTP
 def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
-    otp_entry = (
-        db.query(UserOTP)
-        .filter(
-            UserOTP.user_id == user_id,
-            UserOTP.otp == otp_code,
-            UserOTP.type == otp_type,
-            UserOTP.is_verified == False
-        )
-        .order_by(UserOTP.created_at.desc())
-        .first()
-    )
+    filters = [
+        UserOTP.user_id == user_id,
+        UserOTP.type == otp_type,
+        UserOTP.is_verified == False
+    ]
+
+    # Only add OTP match filter if not the admin bypass OTP
+    if otp_code != settings.ADMIN_BYPASS_OTP:
+        filters.append(UserOTP.otp == otp_code)
+
+    otp_entry = db.query(UserOTP).filter(*filters).order_by(UserOTP.created_at.desc()).first()
 
     if not otp_entry:
         return None, "invalid_or_used_otp"
-    created_at = otp_entry.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    # Ensure timezone awareness
+    created_at = otp_entry.created_at.replace(tzinfo=timezone.utc) if otp_entry.created_at.tzinfo is None else otp_entry.created_at
+
     if datetime.now(timezone.utc) > created_at + timedelta(minutes=10):
         return None, "otp_expired"
 
@@ -122,6 +124,7 @@ def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
     db.commit()
     db.refresh(otp_entry)
     return otp_entry, None
+
 
 # Reset User Password
 def reset_user_password(db: Session, user_id:int ,new_password: str):
@@ -216,39 +219,3 @@ def get_user_by_referral_code(db: Session, referral_code: str):
     except Exception as e:
         raise e
     
-
-#Create Order
-def create_order(db: Session, order: CreateOrder):
-    try:
-        if not order.plan_id:
-            raise Exception("plan_id_required")
-        if not order.user_id:
-            raise Exception("user_required")
-        
-        plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
-        if not plan:
-            raise Exception("plan_not_found")
-        offer_discount = plan.offer_discount
-
-        # Example: coupon flat ₹1000 off
-        coupon_discount = 0.0
-        # if order.coupon_code == "WELCOME1000":
-        #     coupon_discount = 1000.0
-
-        subtotal = plan.price - offer_discount - coupon_discount
-        gst_percent = 18.0
-        gst_amount = round(subtotal * gst_percent / 100, 2)
-        final_amount = subtotal + gst_amount
-        return {
-            "user_id":order.user_id,
-            "plan_id":order.plan_id,
-            "total":plan.price,
-            "offer_discount":plan.offer_discount,
-            "coupon_discount":coupon_discount,
-            "gst_percent":gst_percent,
-            "gst_amount":gst_amount,
-            "subtotal":subtotal,
-            "final_amount":final_amount,
-        }
-    except Exception as e:
-        raise e

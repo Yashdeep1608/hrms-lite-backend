@@ -8,8 +8,9 @@ from app.models import User
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.crud import user as crud_user
-from app.schemas.user import ChangePassword, UserUpdate, UserOut
+from app.schemas.user import ChangePassword, CreateOrder, PlaceOrder, UserUpdate, UserOut
 from app.services.payments.razorpay_service import *
+from fastapi.encoders import jsonable_encoder
 
 translator = Translator()
 
@@ -81,4 +82,3 @@ async def change_password(
                                       message=translator.t("password_changed", lang))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
-

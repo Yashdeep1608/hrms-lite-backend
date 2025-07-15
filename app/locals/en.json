@@ -97,5 +97,15 @@
   "contacts_assigned_to_tags":"Contact assigned to tags",
   "contact_groups_retrieved":"Contact's groups retrieved",
   "contact_tags_retrieved":"Contact's tags retrieved",
-  "referral_code_invalid":"Referral code is invalid"
+  "referral_code_invalid":"Referral code is invalid",
+  "plan_not_found":"Plan not found",
+  "user_required":"User is required",
+  "plan_required":"Plan is required",
+  "coupon_created":"Coupon created",
+  "coupon_updated":"Coupon updated",
+  "coupon_deleted":"Coupon deleted",
+  "coupon_retrieved":"Coupon Retrieved",
+  "coupons_retrieved":"Coupons Retrieved",
+  "invalid_coupon":"Invalid Coupon",
+  "coupon_expired":"Coupon is expired"
 }

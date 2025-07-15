@@ -80,8 +80,3 @@ class ChangePassword(BaseModel):
     user_id: int
     current_password: str
     new_password: str
-
-class CreateOrder(BaseModel):
-    user_id: int
-    plan_id: int
-    coupon_code: Optional[str] = None

@@ -40,6 +40,7 @@ class OrderStatus(str, enum.Enum):
     CREATED = "created"
     PENDING = "pending"
     COMPLETED = "completed"
+    REFUNDED = "refunded"  
     FAILED = "failed"
     CANCELLED = "cancelled"
 

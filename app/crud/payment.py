@@ -1,0 +1,233 @@
+
+
+
+#Create Order
+from datetime import datetime, timedelta, timezone
+import razorpay
+from requests import Session
+
+from app.models.coupon import Coupon
+from app.models.enums import OrderStatus, PaymentMode, PaymentStatus, PlanStatus
+from app.models.plan import Plan
+from app.models.user import UserOrder, UserPayment, UserPlan
+from app.schemas.payment import CreateOrder, PlaceOrder, RazorpayPaymentVerify
+from app.services.payments.razorpay_service import create_razorpay_order, fetch_razorpay_payment
+
+
+def create_order(db: Session, order: CreateOrder):
+    try:
+        if not order.user_id:
+            raise Exception("user_required")
+
+        plan = None
+        offer_discount = 0.0
+        coupon_discount = 0.0
+        total_price = 0.0
+        subtotal = 0.0
+
+        
+        # Plan logic
+        if order.plan_id:
+            plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+            if not plan:
+                raise Exception("plan_not_found")
+
+            offer_discount = plan.offer_discount or 0.0
+            total_price = plan.price
+            subtotal = total_price - offer_discount - coupon_discount
+        
+        # Coupon logic
+        if order.coupon_code:
+            coupon = db.query(Coupon).filter(Coupon.code == order.coupon_code).first()
+            if not coupon or not coupon.is_active:
+                raise Exception("invalid_coupon")
+
+            now = datetime.now(timezone.utc)
+            if coupon.valid_to and now > coupon.valid_to:
+                raise Exception("coupon_expired")
+
+            if coupon.discount_type == "flat":
+                coupon_discount = coupon.discount_value
+            elif coupon.discount_type == "percentage":
+                coupon_discount = round((subtotal * coupon.discount_value) / 100, 2)
+
+            # prevent negative subtotal
+            coupon_discount = min(coupon_discount, subtotal)
+            subtotal -= coupon_discount
+
+        gst_percent = 18.0
+        gst_amount = round(subtotal * gst_percent / 100, 2)
+        final_amount = subtotal + gst_amount
+
+        return {
+            "user_id": order.user_id,
+            "plan_id": order.plan_id or None,
+            "total": total_price,
+            "offer_discount": offer_discount,
+            "coupon_discount": coupon_discount,
+            "gst_percent": gst_percent,
+            "gst_amount": gst_amount,
+            "subtotal": subtotal,
+            "final_amount": final_amount,
+        }
+
+    except Exception as e:
+        raise e
+    
+def place_order(db: Session, payload: PlaceOrder):
+    try:
+        if not payload.user_id:
+            raise Exception("user_required")
+
+        user_order = UserOrder(
+            user_id=payload.user_id,
+            business_id=payload.business_id,
+            plan_id=payload.plan_id or None,
+            coupon_code=payload.coupon_code or None,
+            order_type=payload.order_type,
+            original_amount=payload.original_amount,
+            offer_discount=payload.offer_discount,
+            coupon_discount=payload.coupon_discount,
+            subtotal=payload.subtotal,
+            gst_percent=18.0,
+            gst_amount=payload.gst_amount,
+            final_amount=payload.final_amount,
+            notes=payload.notes,
+            status=OrderStatus.CREATED
+        )
+
+        db.add(user_order)
+        db.commit()
+        db.refresh(user_order)
+        try:
+            receipt_id = str(user_order.id)
+            razorpay_order = create_razorpay_order(
+                amount=user_order.final_amount,
+                currency="INR",
+                receipt=receipt_id,
+                notes={"user_id": str(payload.user_id), "order_type": payload.order_type or "general"}
+            )
+
+            # Save razorpay_order_id to DB
+            user_order.razorpay_order_id = razorpay_order["id"]
+            user_payment = UserPayment(
+                user_id=payload.user_id,
+                amount=user_order.final_amount,
+                currency="INR",
+                receipt=str(user_order.id),
+                razorpay_order_id=razorpay_order["id"],
+                status=PaymentStatus.CREATED,
+                is_verified=False,
+                payment_mode=PaymentMode.ONLINE,
+                notes={"user_id": str(payload.user_id), "order_type": payload.order_type or "general"}
+            )
+            db.add(user_payment)
+            db.commit()
+            db.refresh(user_order)
+
+        except razorpay.errors.BadRequestError as e:
+            db.rollback()
+            raise Exception(f"Razorpay BadRequestError: {str(e)}")
+
+        except razorpay.errors.ServerError as e:
+            db.rollback()
+            raise Exception("Razorpay server error, please try again later.")
+
+        except razorpay.errors.AuthenticationError as e:
+            db.rollback()
+            raise Exception("Razorpay authentication failed. Check API keys.")
+
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to create Razorpay order: {str(e)}")
+        return user_order
+
+    except Exception as e:
+        db.rollback()
+        raise e
+    
+def verify_user_payment(
+    db: Session,payload:RazorpayPaymentVerify):
+    payment = db.query(UserPayment).filter(
+            UserPayment.razorpay_order_id == payload.order_id
+        ).first()
+
+    if not payment:
+        raise Exception("payment_not_found")
+    payment_data = fetch_razorpay_payment(payload.payment_id)
+    payment_status = payment_data.get("status")  # captured, failed, refunded, authorized, etc.
+    payment_method = payment_data.get("method", "unknown")
+    payment.razorpay_payment_id = payload.payment_id
+    payment.payment_method = payment_method
+    payment.is_verified = True
+    # Update payment status based on Razorpay
+    if payment_status == "captured":
+        payment.status = PaymentStatus.COMPLETED
+    elif payment_status =="failed":
+        payment.status = PaymentStatus.FAILED
+    elif payment_status =="refunded":
+        payment.status = PaymentStatus.REFUNDED
+    elif payment_status == "authorized":
+        payment.status = PaymentStatus.PENDING
+    else:
+        payment.status = PaymentStatus.FAILED  # fallback
+
+    # Update associated order as well
+    order = db.query(UserOrder).filter(UserOrder.razorpay_order_id == payload.order_id).first()
+    if order:
+        if payment.status == PaymentStatus.COMPLETED:
+            order.status = OrderStatus.COMPLETED
+        elif payment.status == PaymentStatus.FAILED:
+            order.status = OrderStatus.FAILED
+        elif payment.status == PaymentStatus.REFUNDED:
+            order.status = OrderStatus.REFUNDED
+        elif payment.status == PaymentStatus.PENDING:
+            order.status = OrderStatus.PENDING
+    
+    # ✅ If payment completed and plan_id exists, create UserPlan
+    if payment.status == PaymentStatus.COMPLETED and order.plan_id:
+        plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+
+        if not plan:
+            raise Exception("plan_not_found")
+
+        existing_plan = db.query(UserPlan).filter(
+            UserPlan.user_id == order.user_id
+        ).first()
+
+        start_date = datetime.now(timezone.utc)
+        end_date = start_date + timedelta(days=plan.duration_days or 30)
+
+        if existing_plan:
+            # ✅ Update existing plan
+            existing_plan.payment_id = payment.id
+            existing_plan.start_date = start_date
+            existing_plan.end_date = end_date
+            existing_plan.status = PlanStatus.ACTIVE
+            existing_plan.is_trial = False
+            db.commit()
+            db.refresh(existing_plan)
+        else:
+            # ✅ Create new plan
+            new_user_plan = UserPlan(
+                user_id=order.user_id,
+                plan_id=order.plan_id,
+                payment_id=payment.id,
+                start_date=start_date,
+                end_date=end_date,
+                status=PlanStatus.ACTIVE,
+                is_trial=False
+            )
+            db.add(new_user_plan)
+
+    db.commit()
+    return payment
+
+
+#  Webhook for payment status updates (to catch refunds, late confirmations)
+
+#  Email/notification upon successful payment
+
+#  Admin panel to monitor transactions and plans
+
+#  Retry logic if payment fails before confirmation
