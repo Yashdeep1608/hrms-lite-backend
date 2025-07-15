@@ -247,14 +247,14 @@ def get_contacts_for_dropdown(db: Session,user:dict ,business_id: int, search: s
     )
 
 
-    role_id = user.role_id
+    role = user.role
     user_id = user.id
 
-    if role_id == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.Employee:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role_id == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.Admin:
         # Admin sees all contacts of the business
         pass
 
@@ -362,14 +362,14 @@ def get_all_contacts(
     )
 
 
-    role_id = user.role_id
+    role = user.role
     user_id = user.id
 
-    if role_id == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.Employee:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role_id == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.Admin:
         # Admin sees all contacts of the business
         pass
 
@@ -505,14 +505,14 @@ def get_all_contacts_count(
     )
 
 
-    role_id = user.role_id
+    role = user.role
     user_id = user.id
 
-    if role_id == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.Employee:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role_id == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.Admin:
         # Admin sees all contacts of the business
         pass
 

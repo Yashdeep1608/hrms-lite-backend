@@ -13,4 +13,5 @@ from .category import Category
 from .product import *
 from .service import *
 from .contact import *
+from .plan import *
 # add all your models here for easy import elsewhere

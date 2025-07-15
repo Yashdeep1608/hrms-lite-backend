@@ -49,7 +49,7 @@ class UserOut(BaseModel):
     is_phone_verified:bool
     username:Optional[str] = None
     password:Optional[str] = None
-    role_id:int
+    role:str
     is_active:bool
     is_deleted:bool
 
@@ -81,3 +81,7 @@ class ChangePassword(BaseModel):
     current_password: str
     new_password: str
 
+class CreateOrder(BaseModel):
+    user_id: int
+    plan_id: int
+    coupon_code: Optional[str] = None

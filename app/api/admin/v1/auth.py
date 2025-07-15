@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from app.core.dependencies import get_current_user
 from app.helpers.utils import get_lang_from_request
 from app.models.enums import OtpTypeEnum
-from app.schemas.user import SendOtp, UserCreate, UserOut, ForgetPassword, ResetPassword, VerifyOtp
+from app.schemas.user import CreateOrder, SendOtp, UserCreate, UserOut, ForgetPassword, ResetPassword, VerifyOtp
 from app.crud import user as crud_user
 from app.db.session import get_db
 from app.core.security import *
@@ -52,7 +52,7 @@ def login_user(request: Request,form_data: OAuth2PasswordRequestForm = Depends()
 
         access_token = create_access_token(data={"sub": str(user.id)})
         return ResponseHandler.success(
-            data={"access_token": access_token, "token_type": "bearer"},
+            data={"access_token": access_token, "token_type": "bearer","user_id":user.id},
             message=translator.t("login_success", lang)
         )
     except Exception as e:
@@ -107,7 +107,6 @@ def reset_password(request: Request,payload: ResetPassword, db: Session = Depend
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("reset_password_failed",lang),error=str(e))
 
-
 @router.post("/send-otp")
 def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -127,4 +126,10 @@ def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("otp_resend_failed", lang), error=str(e))
 
-
+@router.post("create-order")
+def create_order(request: Request, payload: CreateOrder, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        order = crud_user.create_order(db, payload.order)
+    except Exception as e:
+        return ResponseHandler.bad_request(message=translator.t("create_order_failed", lang), error=str(e))

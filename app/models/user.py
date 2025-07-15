@@ -1,9 +1,12 @@
-from enum import unique
-
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Enum
+from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from datetime import datetime, timezone
+
+from app.models.enums import OrderStatus, PaymentMode, PaymentStatus, PlanStatus
 
 class User(Base):
     __tablename__ = "users"
@@ -19,7 +22,7 @@ class User(Base):
     is_phone_verified = Column(Boolean, default=False)
     username = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
-    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    role = Column(String, nullable=False)
     business_id = Column(Integer, ForeignKey('businesses.id'), nullable=True)  # 🔁 Moved here
     preferred_language = Column(String,default = 'en')
     parent_user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -32,7 +35,6 @@ class User(Base):
     last_active_at = Column(DateTime)
     profile_image = Column(String,nullable=True)
 
-    roles = relationship("Role", back_populates="users")
     parent_user = relationship("User",remote_side=[id],foreign_keys=[parent_user_id],backref="downlines")
     business = relationship("Business", back_populates="users")
     referrer = relationship("User",remote_side=[id],foreign_keys=[referred_by],backref="referrals")
@@ -43,5 +45,83 @@ class User(Base):
     assigned_group_contacts = relationship("GroupContact", back_populates="user", cascade="all, delete-orphan")
     created_groups = relationship("Groups", back_populates="creator", cascade="all, delete-orphan")
     business_contacts_managed = relationship("BusinessContact", back_populates="managed_by_user")
+    payments = relationship("UserPayment", back_populates="user")
+    orders = relationship("UserOrder", back_populates="user")
+    plans = relationship("UserPlan", back_populates="user")
+    coupons = relationship("Coupon", back_populates="user")
 
 
+class UserPayment(Base):
+    __tablename__ = "user_payments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), default="INR")
+    receipt = Column(String, nullable=False)
+    razorpay_order_id = Column(String, nullable=True)
+    razorpay_payment_id = Column(String, nullable=True)
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.CREATED)
+    notes = Column(String, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    payment_mode = Column(Enum(PaymentMode), default=PaymentMode.ONLINE)
+    payment_method = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # If needed, define relationship to User
+    user = relationship("User", back_populates="payments")
+
+class UserOrder(Base):
+    __tablename__ = "user_orders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Creator of order
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # Optional: if tied to business
+    plan_id = Column(Integer, nullable=True)
+    coupon_code = Column(String, nullable=True)
+    order_type = Column(String, nullable=True)  # Enum in logic: "registration", "employee_add", "feature_purchase"
+    
+    # pricing
+    original_amount = Column(Float, nullable=False)
+    offer_discount = Column(Float, default=0.0)
+    coupon_discount = Column(Float, default=0.0)
+    subtotal = Column(Float, nullable=False)   # after all discounts, before tax
+    gst_percent = Column(Float, default=18.0)
+    gst_amount = Column(Float, nullable=False)
+    final_amount = Column(Float, nullable=False)
+
+    razorpay_order_id = Column(String, nullable=True)
+    status = Column(Enum(OrderStatus), default=OrderStatus.CREATED)
+        
+    notes = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="orders")
+    business = relationship("Business", back_populates="orders")
+
+
+class UserPlan(Base):
+    __tablename__ = "user_plans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("user_payments.id"), nullable=True)
+
+    start_date = Column(DateTime(timezone=True), default=func.now())
+    end_date = Column(DateTime(timezone=True), nullable=True)
+
+    status = Column(Enum(PlanStatus), default=PlanStatus.PENDING)
+    is_trial = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    user = relationship("User", back_populates="plans")
+    payment = relationship("UserPayment", backref="user_plan")
+    plan = relationship("Plan", back_populates="user_plans")

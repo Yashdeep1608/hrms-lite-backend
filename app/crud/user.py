@@ -3,9 +3,10 @@ from datetime import timedelta, datetime, timezone
 import random
 import string
 from sqlalchemy.orm import Session
+from app.models.plan import Plan
 from app.models.user import User
 from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword, UserCreate, UserOut, UserUpdate
+from app.schemas.user import ChangePassword, CreateOrder, UserCreate, UserOut, UserUpdate
 from app.core.security import *
 from app.models.enums import RoleTypeEnum
 from app.models.permission import Permission  # Adjust import if needed
@@ -53,7 +54,7 @@ def create_user(db: Session, user_in: UserCreate):
         username=hashed_username,
         password=hashed_password,
         referral_code=referral_code,
-        role_id=RoleTypeEnum.Admin,
+        role=RoleTypeEnum.Admin,
         business_id=user_in.business_id,
         profile_image = user_in.profile_image,
         parent_user_id = user_in.parent_user_id or None,
@@ -215,3 +216,39 @@ def get_user_by_referral_code(db: Session, referral_code: str):
     except Exception as e:
         raise e
     
+
+#Create Order
+def create_order(db: Session, order: CreateOrder):
+    try:
+        if not order.plan_id:
+            raise Exception("plan_id_required")
+        if not order.user_id:
+            raise Exception("user_required")
+        
+        plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+        if not plan:
+            raise Exception("plan_not_found")
+        offer_discount = plan.offer_discount
+
+        # Example: coupon flat ₹1000 off
+        coupon_discount = 0.0
+        # if order.coupon_code == "WELCOME1000":
+        #     coupon_discount = 1000.0
+
+        subtotal = plan.price - offer_discount - coupon_discount
+        gst_percent = 18.0
+        gst_amount = round(subtotal * gst_percent / 100, 2)
+        final_amount = subtotal + gst_amount
+        return {
+            "user_id":order.user_id,
+            "plan_id":order.plan_id,
+            "total":plan.price,
+            "offer_discount":plan.offer_discount,
+            "coupon_discount":coupon_discount,
+            "gst_percent":gst_percent,
+            "gst_amount":gst_amount,
+            "subtotal":subtotal,
+            "final_amount":final_amount,
+        }
+    except Exception as e:
+        raise e

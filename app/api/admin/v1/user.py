@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.crud import user as crud_user
 from app.schemas.user import ChangePassword, UserUpdate, UserOut
+from app.services.payments.razorpay_service import *
 
 translator = Translator()
 

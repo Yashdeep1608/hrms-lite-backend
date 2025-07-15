@@ -34,3 +34,4 @@ class Business(Base):
     categories = relationship("Category", back_populates="businesses")
     products = relationship("Product", back_populates="businesses")
     services = relationship("Service", back_populates="businesses")
+    coupons = relationship("Coupon", back_populates="business")

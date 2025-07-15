@@ -6,10 +6,17 @@ class BusinessTypeEnum(str, enum.Enum):
     BOTH = "hybrid"
     DIGITAL = "digital"
 
-class RoleTypeEnum(int,enum.Enum):
-    SuperAdmin = 1
-    Admin = 2
-    Employee = 3
+class RoleTypeEnum(str,enum.Enum):
+    # 🌐 Platform-side roles (your internal team)
+    SUPER_ADMIN = "superadmin"
+    PLATFORM_ADMIN = "platform_admin"
+    SALES = "sales"
+    SUPPORT = "support"
+    DEVELOPER = "developer"
+
+    # 🧑‍💼 Business-side roles (your customers)
+    BUSINESS_ADMIN = "admin"
+    EMPLOYEE = "employee"
 
 class OtpTypeEnum(str,enum.Enum):
     Register = "register"
@@ -21,3 +28,35 @@ class OtpTypeEnum(str,enum.Enum):
 class PermissionTypeEnum(str,enum.Enum):
     Page = "page"
     Method = "method"
+
+class PaymentStatus(str,enum.Enum):
+    CREATED = "created"
+    SUCCESS = "success"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+    PENDING = "pending"
+
+class OrderStatus(str, enum.Enum):
+    CREATED = "created"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+class PaymentMode(str, enum.Enum):
+    ONLINE = "online"  # Razorpay or other gateways
+    CASH = "cash"
+    MANUAL = "manual"  # Bank transfer, etc. (optional for future)
+
+class PlanStatus(str, enum.Enum):
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+    PENDING = "pending"
+class CouponType(str, enum.Enum):
+    PLATFORM = "platform"
+    BUSINESS = "business"
+class OrderType(str, enum.Enum):
+    REGISTRATION = "registration"
+    EMPLOYEE_ADD = "employee_add"
+    FEATURE_PURCHASE = "feature_purchase"
