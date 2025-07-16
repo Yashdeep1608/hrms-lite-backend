@@ -3,6 +3,7 @@
 
 #Create Order
 from datetime import datetime, timedelta, timezone
+import json
 import razorpay
 from requests import Session
 
@@ -34,7 +35,7 @@ def create_order(db: Session, order: CreateOrder):
 
             offer_discount = plan.offer_discount or 0.0
             total_price = plan.price
-            subtotal = total_price - offer_discount - coupon_discount
+            subtotal = offer_discount - coupon_discount
         
         # Coupon logic
         if order.coupon_code:
@@ -110,6 +111,8 @@ def place_order(db: Session, payload: PlaceOrder):
 
             # Save razorpay_order_id to DB
             user_order.razorpay_order_id = razorpay_order["id"]
+            notes={"user_id": str(payload.user_id), "order_type": payload.order_type or "general"}
+            notes_str = json.dumps(notes)
             user_payment = UserPayment(
                 user_id=payload.user_id,
                 amount=user_order.final_amount,
@@ -119,28 +122,30 @@ def place_order(db: Session, payload: PlaceOrder):
                 status=PaymentStatus.CREATED,
                 is_verified=False,
                 payment_mode=PaymentMode.ONLINE,
-                notes={"user_id": str(payload.user_id), "order_type": payload.order_type or "general"}
+                notes=notes_str
             )
             db.add(user_payment)
             db.commit()
             db.refresh(user_order)
 
+            return user_order
         except razorpay.errors.BadRequestError as e:
             db.rollback()
+            if "invalid api key" in str(e).lower():
+                raise Exception("Razorpay authentication failed. Check API keys.")
             raise Exception(f"Razorpay BadRequestError: {str(e)}")
 
         except razorpay.errors.ServerError as e:
             db.rollback()
             raise Exception("Razorpay server error, please try again later.")
 
-        except razorpay.errors.AuthenticationError as e:
+        except razorpay.errors.SignatureVerificationError as e:
             db.rollback()
-            raise Exception("Razorpay authentication failed. Check API keys.")
+            raise Exception("Signature verification failed.")
 
         except Exception as e:
             db.rollback()
             raise Exception(f"Failed to create Razorpay order: {str(e)}")
-        return user_order
 
     except Exception as e:
         db.rollback()
@@ -162,7 +167,7 @@ def verify_user_payment(
     payment.is_verified = True
     # Update payment status based on Razorpay
     if payment_status == "captured":
-        payment.status = PaymentStatus.COMPLETED
+        payment.status = PaymentStatus.SUCCESS
     elif payment_status =="failed":
         payment.status = PaymentStatus.FAILED
     elif payment_status =="refunded":
@@ -175,7 +180,7 @@ def verify_user_payment(
     # Update associated order as well
     order = db.query(UserOrder).filter(UserOrder.razorpay_order_id == payload.order_id).first()
     if order:
-        if payment.status == PaymentStatus.COMPLETED:
+        if payment.status == PaymentStatus.SUCCESS:
             order.status = OrderStatus.COMPLETED
         elif payment.status == PaymentStatus.FAILED:
             order.status = OrderStatus.FAILED
@@ -185,7 +190,7 @@ def verify_user_payment(
             order.status = OrderStatus.PENDING
     
     # ✅ If payment completed and plan_id exists, create UserPlan
-    if payment.status == PaymentStatus.COMPLETED and order.plan_id:
+    if payment.status == PaymentStatus.SUCCESS and order.plan_id:
         plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
 
         if not plan:
@@ -195,8 +200,13 @@ def verify_user_payment(
             UserPlan.user_id == order.user_id
         ).first()
 
-        start_date = datetime.now(timezone.utc)
-        end_date = start_date + timedelta(days=plan.duration_days or 30)
+        now = datetime.now(timezone.utc)
+        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # End of the Nth day (inclusive): 23:59:59.999999
+        end_date = (start_date + timedelta(days=plan.duration_days or 30)).replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
 
         if existing_plan:
             # ✅ Update existing plan

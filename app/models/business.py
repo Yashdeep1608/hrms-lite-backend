@@ -35,3 +35,4 @@ class Business(Base):
     products = relationship("Product", back_populates="businesses")
     services = relationship("Service", back_populates="businesses")
     coupons = relationship("Coupon", back_populates="business")
+    orders = relationship("UserOrder", back_populates="business", cascade="all, delete-orphan")

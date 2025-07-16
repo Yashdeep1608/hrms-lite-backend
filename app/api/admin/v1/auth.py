@@ -4,6 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from app.core.dependencies import get_current_user
 from app.helpers.utils import get_lang_from_request
 from app.models.enums import OtpTypeEnum
+from app.models.plan import Plan
 from app.schemas.user import SendOtp, UserCreate, UserOut, ForgetPassword, ResetPassword, VerifyOtp
 from app.crud import user as crud_user
 from app.db.session import get_db
@@ -35,9 +36,10 @@ def register_user(user: UserCreate, request: Request,db: Session = Depends(get_d
             user.referred_by = referred_by_user
         
         created_user = crud_user.create_user(db, user)
-        user_out = UserOut.model_validate(created_user).model_dump()
-
-        return ResponseHandler.success(data=user_out, message=translator.t("registration_success", lang))
+        user_otp = crud_user.create_otp_for_user(OtpTypeEnum.Register, db, created_user)
+        # send_token_email_or_sms(user.email or user.phone, token)  # Integrate your service here
+        crud_user.mark_otp_as_sent(db, user_otp)
+        return ResponseHandler.success(data=created_user.id, message=translator.t("otp_sent", lang))
 
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("registration_error", lang), error=str(e))
@@ -46,7 +48,7 @@ def register_user(user: UserCreate, request: Request,db: Session = Depends(get_d
 def login_user(request: Request,form_data: OAuth2PasswordRequestForm = Depends(),db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
-        user = crud_user.get_user_by_username(db, verify_username_password(form_data.username))
+        user = crud_user.get_user_by_username(db,form_data.username)
         if not user or not (verify_username_password(form_data.password, user.password)):
             return ResponseHandler.unauthorized(message=translator.t("invalid_credentials", lang))
 
@@ -78,7 +80,7 @@ def forgot_password(request: Request,payload: ForgetPassword, db: Session = Depe
 def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
-        otp_entry, error_code = crud_user.verify_otp(
+        error_code = crud_user.verify_otp(
             db=db,
             user_id=payload.user_id,
             otp_code=payload.otp,
@@ -90,7 +92,15 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
         elif error_code == "otp_expired":
             return ResponseHandler.bad_request(message=translator.t("otp_expired", lang))
 
-        return ResponseHandler.success(message=translator.t("otp_verified", lang))
+        if payload.otp_type != OtpTypeEnum.Register:
+            return ResponseHandler.success(message=translator.t("otp_verified", lang))
+        
+        access_token = create_access_token(data={"sub": str(payload.user_id)})
+        return ResponseHandler.success(
+            data={"access_token": access_token, "token_type": "bearer","user_id":payload.user_id},
+            message=translator.t("registration_success", lang)
+        )
+        
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("otp_verification_failed", lang),error=str(e))
 
@@ -126,4 +136,12 @@ def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("otp_resend_failed", lang), error=str(e))
 
-
+@router.get("/get-plans")
+def get_plans(request: Request,db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        plans = db.query(Plan).all()
+        return ResponseHandler.success(message=translator.t("plans_retrieved", lang),data=jsonable_encoder(plans))
+    except Exception as e:
+        return ResponseHandler.bad_request(message=translator.t("plans_retrieval_failed", lang), error=str(e))
+    

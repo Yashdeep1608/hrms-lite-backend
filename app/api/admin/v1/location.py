@@ -30,7 +30,7 @@ def get_countries(request: Request, db: Session = Depends(get_db)):
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
-@router.get("/states/{country_code}")
+@router.get("/states")
 def get_states(county_code:str,request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:

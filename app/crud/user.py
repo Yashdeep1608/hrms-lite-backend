@@ -2,11 +2,11 @@ from datetime import timedelta, datetime, timezone
 import random
 import string
 from sqlalchemy.orm import Session
-from app.models.user import User
+from app.models.user import User, UserPlan
 from app.models.user_otp import UserOTP
 from app.schemas.user import ChangePassword,UserCreate, UserOut, UserUpdate
 from app.core.security import *
-from app.models.enums import RoleTypeEnum
+from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
 from app.models.permission import Permission  # Adjust import if needed
 from app.models.user_permission import UserPermission  # Adjust import if needed
 from app.models.business import Business  # Adjust import if needed
@@ -40,7 +40,6 @@ def get_user_by_id(db: Session, user_id: int):
 # Create Ne User
 def create_user(db: Session, user_in: UserCreate):
     hashed_password = get_username_password_hash(user_in.password)
-    hashed_username = get_username_password_hash(user_in.username)
     referral_code = generate_unique_referral_code(db)
     
     db_user = User(
@@ -50,10 +49,10 @@ def create_user(db: Session, user_in: UserCreate):
         isd_code=user_in.isd_code,
         phone_number=user_in.phone_number,
         whatsapp_number=user_in.whatsapp_number,
-        username=hashed_username,
+        username=user_in.username,
         password=hashed_password,
         referral_code=referral_code,
-        role=RoleTypeEnum.Admin,
+        role=RoleTypeEnum.ADMIN,
         business_id=user_in.business_id,
         profile_image = user_in.profile_image,
         parent_user_id = user_in.parent_user_id or None,
@@ -112,19 +111,23 @@ def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
     otp_entry = db.query(UserOTP).filter(*filters).order_by(UserOTP.created_at.desc()).first()
 
     if not otp_entry:
-        return None, "invalid_or_used_otp"
+        return "invalid_or_used_otp"
 
     # Ensure timezone awareness
     created_at = otp_entry.created_at.replace(tzinfo=timezone.utc) if otp_entry.created_at.tzinfo is None else otp_entry.created_at
 
     if datetime.now(timezone.utc) > created_at + timedelta(minutes=10):
-        return None, "otp_expired"
+        return "otp_expired"
 
     otp_entry.is_verified = True
+
+    if otp_type == OtpTypeEnum.Register:
+        user = db.query(User).filter(User.id == user_id).first()
+        user.is_phone_verified = True
+        db.commit()
     db.commit()
     db.refresh(otp_entry)
-    return otp_entry, None
-
+    return None
 
 # Reset User Password
 def reset_user_password(db: Session, user_id:int ,new_password: str):
@@ -152,27 +155,73 @@ def get_user_profile_data(db: Session, user: User):
     business_data = BusinessOut.model_validate(business) if business else None
 
     combined_keys = []
-    if user.roles.name.lower() != "superadmin":
-       # Get default permissions based on role
-        role_column = f"default_{user.roles.name.lower()}"
+    if user.role.lower() != RoleTypeEnum.SUPER_ADMIN:
+        # Get default permissions based on role
+        role_column = f"default_{user.role.lower()}"
         default_permissions = db.query(Permission).filter(
             getattr(Permission, role_column) == True
         ).all()
         default_keys = {p.key for p in default_permissions}
 
-        # User-specific permission overrides
-        user_permissions = db.query(UserPermission).filter(
+        # Get user-specific permission overrides from new structure
+        user_permission_row = db.query(UserPermission).filter(
             UserPermission.user_id == user.id
-        ).all()
-        user_keys = {perm.permissions.key for perm in user_permissions}
+        ).first()
 
-        combined_keys = default_keys.union(user_keys)
+        user_keys = set(user_permission_row.permission_keys) if user_permission_row and user_permission_row.permission_keys else set()
+
+        # Merge both
+        combined_keys = list(default_keys.union(user_keys))
     
+    redirect = None
+    plan_data = None
+    reason = None
+
+    # Check phone verification first (applies to all roles)
+    if not user.is_phone_verified:
+        redirect = 'verify-otp'
+        reason = "phone_verification"
+
+    # For Admins, check active user plan
+    elif user.role.lower() == RoleTypeEnum.ADMIN:
+        user_plan = db.query(UserPlan).filter(
+            UserPlan.user_id == user.id,
+            UserPlan.status == PlanStatus.ACTIVE
+        ).first()
+
+        now = datetime.now(timezone.utc)
+
+        # ✅ If plan exists, check expiration
+        if user_plan:
+            if user_plan.end_date and user_plan.end_date < now:
+                # Update plan status to expired
+                user_plan.status = PlanStatus.EXPIRED
+                db.commit()
+                db.refresh(user_plan)
+                redirect = 'make-payment'
+                reason = "plan_expired"
+            else:
+                # ✅ Plan is valid and active
+                plan_data = {
+                    "plan_name": user_plan.plan.name if user_plan.plan else None,
+                    "start_date": str(user_plan.start_date),
+                    "end_date": str(user_plan.end_date),
+                    "is_trial": user_plan.is_trial,
+                    "status": user_plan.status,
+                    "payment_id": str(user_plan.payment_id) if user_plan.payment_id else None
+                }
+        else:
+            # ❌ No active plan
+            redirect = 'make-payment'
+            reason = "plan_missing"
 
     return {
         "user": user_data.model_dump(mode="json"),
         "business": business_data.model_dump(mode="json") if business_data else None,
-        "permissions": list(combined_keys)
+        "permissions": list(combined_keys),
+        "redirect":redirect,
+        "reason":reason,
+        "plan":plan_data
     }
 
 # Update User

@@ -15,7 +15,7 @@ class RoleTypeEnum(str,enum.Enum):
     DEVELOPER = "developer"
 
     # 🧑‍💼 Business-side roles (your customers)
-    BUSINESS_ADMIN = "admin"
+    ADMIN = "admin"
     EMPLOYEE = "employee"
 
 class OtpTypeEnum(str,enum.Enum):

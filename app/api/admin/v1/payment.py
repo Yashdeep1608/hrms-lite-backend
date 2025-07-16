@@ -14,7 +14,6 @@ from app.services.payments.razorpay_service import verify_razorpay_signature
 router = APIRouter(
     prefix="/api/admin/v1/payment",
     tags=["Payment"],
-    dependencies=[Depends(get_current_user)]
 )
 translator = Translator()
 
@@ -23,8 +22,8 @@ translator = Translator()
 def create_order(request: Request, payload: CreateOrder, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
-        order = crud_payment.create_order(db, payload.order)
-        return ResponseHandler.success(data= jsonable_encoder(order)),
+        order = crud_payment.create_order(db, payload)
+        return ResponseHandler.success(data= jsonable_encoder(order))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("create_order_failed", lang), error=str(e))
     
@@ -50,7 +49,7 @@ def verify_payment(payload: RazorpayPaymentVerify, db: Session = Depends(get_db)
 
         payment = crud_payment.verify_user_payment(db,payload)
 
-        return ResponseHandler.success(message="Payment verified successfully.", data={"payment_id": payment.id})
+        return ResponseHandler.success(message="Payment verified successfully.", data={"payment_id": str(payment.id)})
 
     except Exception as e:
-        return ResponseHandler.server_error(message="Payment verification failed.", error=str(e))
+        return ResponseHandler.internal_error(message="Payment verification failed.", error=str(e))

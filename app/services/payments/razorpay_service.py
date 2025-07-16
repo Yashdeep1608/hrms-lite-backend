@@ -19,7 +19,7 @@ def create_razorpay_order(amount: int, currency: str, receipt: str, notes: Dict)
         raise HTTPException(status_code=500, detail=f"Razorpay Order Error: {str(e)}")
 
 def verify_razorpay_signature(payment_id: str, order_id: str, signature: str):
-    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_SECRET))
+    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
     try:
         client.utility.verify_payment_signature({
             'razorpay_order_id': order_id,
@@ -33,7 +33,7 @@ def verify_razorpay_signature(payment_id: str, order_id: str, signature: str):
 
 def fetch_razorpay_payment(payment_id: str) -> dict:
     try:
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_SECRET))
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
         payment = client.payment.fetch(payment_id)
         return payment
     except razorpay.errors.BadRequestError as e:
