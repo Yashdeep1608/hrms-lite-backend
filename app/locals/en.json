@@ -107,5 +107,6 @@
   "coupon_retrieved":"Coupon Retrieved",
   "coupons_retrieved":"Coupons Retrieved",
   "invalid_coupon":"Invalid Coupon",
-  "coupon_expired":"Coupon is expired"
+  "coupon_expired":"Coupon is expired",
+  "phone_number_exists":"PhoneNumber already exists"
 }
