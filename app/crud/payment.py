@@ -4,13 +4,14 @@
 #Create Order
 from datetime import datetime, timedelta, timezone
 import json
+import uuid
 import razorpay
 from requests import Session
 
 from app.models.coupon import Coupon
-from app.models.enums import OrderStatus, PaymentMode, PaymentStatus, PlanStatus
+from app.models.enums import CreditType, OrderStatus, PaymentMode, PaymentStatus, PlanStatus
 from app.models.plan import Plan
-from app.models.user import UserOrder, UserPayment, UserPlan
+from app.models.user import User, UserCredit, UserOrder, UserPayment, UserPlan
 from app.schemas.payment import CreateOrder, PlaceOrder, RazorpayPaymentVerify
 from app.services.payments.razorpay_service import create_razorpay_order, fetch_razorpay_payment
 
@@ -229,10 +230,70 @@ def verify_user_payment(
                 is_trial=False
             )
             db.add(new_user_plan)
-
+            new_user = db.query(User).filter(User.id == order.user_id).first()
+            if new_user and new_user.referred_by:
+                add_credit(
+                    db=db,
+                    user_id=new_user.referred_by,            # Referrer gets credit
+                    source_user_id=new_user.id,              # This new user caused it
+                    credit_type=CreditType.REFERRAL_USER,    # or COUPON_REFERRAL based on logic
+                    code_used=new_user.referral_code,        # or coupon code
+                    meta={"reason": "User subscribed to plan", "plan_id": order.plan_id}
+                )
+            elif order and order.coupon_code:
+                coupon = db.query(Coupon).filter(Coupon.code == order.coupon_code).first();
+                if coupon and coupon.user_id:
+                    add_credit(
+                    db=db,
+                    user_id=coupon.user_id,            # Referrer gets credit
+                    source_user_id=new_user.id,              # This new user caused it
+                    credit_type=CreditType.COUPON_REFERRAL,    # or COUPON_REFERRAL based on logic
+                    code_used=order.coupon_code,        # or coupon code
+                    meta={"reason": "User subscribed to plan", "plan_id": order.plan_id}
+                )
     db.commit()
     return payment
 
+def add_credit(
+    db: Session,
+    *,
+    user_id: int,
+    source_user_id: int,
+    credit_type: CreditType,
+    code_used: str = None,
+    meta: dict = None
+):
+    amount = 0.0
+    if credit_type == CreditType.REFERRAL_USER:
+        amount = 500.0
+    if credit_type == CreditType.COUPON_REFERRAL:
+        if meta["plan_id"] == 1:
+            amount = 1500.0
+        if meta["plan_id"] == 2:
+            amount = 2800.0
+    # Optional: Fetch last balance if needed (or use 0)
+    last_credit = (
+        db.query(UserCredit)
+        .filter(UserCredit.user_id == source_user_id)
+        .order_by(UserCredit.created_at.desc())
+        .first()
+    )
+    previous_balance = last_credit.balance_after or 0.0
+
+    new_credit = UserCredit(
+        user_id=user_id,             # who gets the credit
+        source_user_id=source_user_id,             # who triggered it (new user)
+        amount=amount,
+        type=credit_type,
+        code_used=code_used,
+        meta=meta or {},
+        balance_after=previous_balance + amount,
+    )
+
+    db.add(new_credit)
+    db.commit()
+    db.refresh(new_credit)
+    return new_credit
 
 #  Webhook for payment status updates (to catch refunds, late confirmations)
 

@@ -50,6 +50,7 @@ class UserOut(BaseModel):
     username:Optional[str] = None
     password:Optional[str] = None
     role:str
+    referral_code:str
     is_active:bool
     is_deleted:bool
 

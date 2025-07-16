@@ -1,12 +1,13 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from datetime import datetime, timezone
 
-from app.models.enums import OrderStatus, PaymentMode, PaymentStatus, PlanStatus
+from app.models.enums import CreditType, OrderStatus, PaymentMode, PaymentStatus, PlanStatus
 
 class User(Base):
     __tablename__ = "users"
@@ -49,6 +50,7 @@ class User(Base):
     orders = relationship("UserOrder", back_populates="user")
     plans = relationship("UserPlan", back_populates="user")
     coupons = relationship("Coupon", back_populates="user")
+    credits = relationship("UserCredit", back_populates="user")
 
 
 class UserPayment(Base):
@@ -125,3 +127,20 @@ class UserPlan(Base):
     user = relationship("User", back_populates="plans")
     payment = relationship("UserPayment", backref="user_plan")
     plan = relationship("Plan", back_populates="user_plans")
+
+class UserCredit(Base):
+    __tablename__ = "user_credits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    amount = Column(Float, nullable=False)
+    type = Column(Enum(CreditType), nullable=True)  # e.g. 'referral_user', 'coupon_referral'
+    source_user_id = Column(Integer,nullable=False)
+    code_used = Column(String(100), nullable=True)
+    meta = Column(JSONB,nullable=True)
+    balance_after = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    user = relationship("User", back_populates="credits")
