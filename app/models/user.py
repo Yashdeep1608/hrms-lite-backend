@@ -52,7 +52,6 @@ class User(Base):
     coupons = relationship("Coupon", back_populates="user")
     credits = relationship("UserCredit", back_populates="user")
 
-
 class UserPayment(Base):
     __tablename__ = "user_payments"
 
@@ -104,7 +103,6 @@ class UserOrder(Base):
 
     user = relationship("User", back_populates="orders")
     business = relationship("Business", back_populates="orders")
-
 
 class UserPlan(Base):
     __tablename__ = "user_plans"

@@ -1,17 +1,18 @@
 # app/models/__init__.py
 
-from .role import Role
-from .user import User
-from .business import Business
-from .user_otp import UserOTP
-from .user_permission import UserPermission
-from .permission import Permission
-from .business_category import BusinessCategory
-from .state import State
-from .country import Country
-from .category import Category
+from .role import *
+from .user import *
+from .business import *
+from .user_otp import *
+from .user_permission import *
+from .permission import *
+from .business_category import *
+from .state import *
+from .country import *
+from .category import *
 from .product import *
 from .service import *
 from .contact import *
 from .plan import *
+from .faq import *
 # add all your models here for easy import elsewhere
