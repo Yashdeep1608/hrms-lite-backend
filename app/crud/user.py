@@ -4,7 +4,7 @@ import string
 from sqlalchemy.orm import Session
 from app.models.user import User, UserPlan
 from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword,UserCreate, UserOut, UserUpdate
+from app.schemas.user import ChangePassword, CreateDownlineUser,UserCreate, UserOut, UserUpdate
 from app.core.security import *
 from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
 from app.models.permission import Permission  # Adjust import if needed
@@ -155,7 +155,7 @@ def get_user_profile_data(db: Session, user: User):
     business_data = BusinessOut.model_validate(business) if business else None
 
     combined_keys = []
-    if user.role.lower() != RoleTypeEnum.SUPER_ADMIN:
+    if user.role.lower() != RoleTypeEnum.SUPERADMIN:
         # Get default permissions based on role
         role_column = f"default_{user.role.lower()}"
         default_permissions = db.query(Permission).filter(
@@ -242,7 +242,6 @@ def update_user(db: Session, user:User, data: UserUpdate):
         db.rollback()
         raise
 
-
 # Change User Password
 def changePassword(db: Session, payload:ChangePassword):
     try:
@@ -268,3 +267,45 @@ def get_user_by_referral_code(db: Session, referral_code: str):
     except Exception as e:
         raise e
     
+# Get Platform's Users
+def get_platform_user_list(db:Session,user:User):
+    query = db.query(User).filter(User.role.notin_([RoleTypeEnum.ADMIN, RoleTypeEnum.EMPLOYEE]))
+
+    if user.role == RoleTypeEnum.SUPERADMIN:
+        # See all users except Admin and Employee
+        users = query.all()
+    elif user.role == RoleTypeEnum.PLATFORM_ADMIN:
+        # Only see users created by this platform admin
+        users = query.filter(User.parent_user_id == user.id).all()
+    else:
+        # No access to platform-level user list
+        users = []
+
+    return users
+
+# Create Downline Users
+def create_downline_user(db:Session,payload:CreateDownlineUser,user:User):
+    # Generate referral code
+    referral_code = generate_unique_referral_code(db)
+    hashed_password = get_username_password_hash(payload.password)
+    new_user = User(
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        email=payload.email,
+        phone_number=payload.phone_number,
+        whatsapp_number=payload.whatsapp_number,
+        username=payload.username,
+        password= hashed_password,
+        role=payload.role,
+        business_id=payload.business_id or user.business_id,
+        preferred_language=payload.preferred_language,
+        parent_user_id=user.id,
+        referred_by=None,
+        referral_code=referral_code,
+        is_email_verified=False,
+        is_phone_verified=payload.is_phone_verified,
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)

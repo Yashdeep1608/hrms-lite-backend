@@ -51,6 +51,11 @@ class User(Base):
     plans = relationship("UserPlan", back_populates="user")
     coupons = relationship("Coupon", back_populates="user")
     credits = relationship("UserCredit", back_populates="user")
+    created_tickets = relationship("SupportTicket", foreign_keys="[SupportTicket.user_id]", back_populates="user")
+    assigned_tickets = relationship("SupportTicket", foreign_keys="[SupportTicket.assigned_to]", back_populates="assigned_user")
+    support_messages = relationship("SupportMessage", foreign_keys="[SupportMessage.sender_id]", back_populates="sender")
+    ticket_logs = relationship("TicketActionLog", foreign_keys="[TicketActionLog.actor_id]", back_populates="actor")
+
 
 class UserPayment(Base):
     __tablename__ = "user_payments"

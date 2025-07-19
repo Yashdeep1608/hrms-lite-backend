@@ -8,7 +8,8 @@ from app.models import User
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.crud import user as crud_user
-from app.schemas.user import ChangePassword, UserUpdate, UserOut
+from app.models.enums import RoleTypeEnum
+from app.schemas.user import ChangePassword, CreateDownlineUser, UserUpdate, UserOut
 from app.services.payments.razorpay_service import *
 from fastapi.encoders import jsonable_encoder
 
@@ -61,16 +62,16 @@ def update_user(user_id: int, data: UserUpdate, request: Request, db: Session = 
        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.post("/upload")
-async def upload_image(request:Request,file: UploadFile = File(...)):
+def upload_image(request:Request,file: UploadFile = File(...)):
     lang = get_lang_from_request(request)
     try:
-        image_url = upload_file_to_s3(file, file.filename)
-        return ResponseHandler.success(data={"url": image_url})
+        file_url = upload_file_to_s3(file, file.filename)
+        return ResponseHandler.success(data={"url": file_url})
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
     
 @router.post("/change-password")
-async def change_password(
+def change_password(
     payload:ChangePassword,
     request: Request,
     db: Session = Depends(get_db),
@@ -80,5 +81,49 @@ async def change_password(
         updated_user = crud_user.changePassword(db,payload)
         return ResponseHandler.success(data=UserOut.model_validate(updated_user).model_dump(mode="json"),
                                       message=translator.t("password_changed", lang))
+    except Exception as e:
+        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.get("/get-platform-users")
+def get_platform_users(request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        users = crud_user.get_platform_user_list(db,current_user)
+        return ResponseHandler.success(data=jsonable_encoder(users))
+    except Exception as e:
+        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+    
+@router.post("/create-downline-user")
+def create_downline_user(
+    payload: CreateDownlineUser,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+
+    try:
+        # Only Superadmin, Platform Admin, or Admin can create downline users
+        if current_user.role not in [RoleTypeEnum.SUPERADMIN,RoleTypeEnum.ADMIN,RoleTypeEnum.PLATFORM_ADMIN]:
+            raise ResponseHandler.unauthorized(code=403, message=translator.t("unauthorized", lang))
+
+        # Prevent creation of other admins unless current user is Superadmin
+        if payload.role in [RoleTypeEnum.PLATFORM_ADMIN, RoleTypeEnum.ADMIN] and current_user.role != RoleTypeEnum.SUPERADMIN:
+            raise ResponseHandler.unauthorized(code=403, message=translator.t("unauthorized", lang))
+
+        # Check if username or phone already exists
+        existing_user = crud_user.get_user_by_username(db, payload.username)
+        if existing_user:
+            return ResponseHandler.bad_request(message=translator.t("username_exists", lang))
+        
+        if existing_user.phone_number == payload.phone_number:
+            return ResponseHandler.bad_request(message=translator.t("phone_number_exists", lang))
+
+        new_user = crud_user.create_downline_user(db, payload, current_user)
+
+        return ResponseHandler.success(
+            message=translator.t("user_created_successfully", lang),
+            data=jsonable_encoder(new_user)
+        )
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))

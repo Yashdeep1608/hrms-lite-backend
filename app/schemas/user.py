@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional,List
 
 from app.schemas.business import BusinessOut
@@ -81,3 +81,16 @@ class ChangePassword(BaseModel):
     user_id: int
     current_password: str
     new_password: str
+
+class CreateDownlineUser(BaseModel):
+    first_name: str
+    last_name: str
+    email: Optional[EmailStr] = None
+    phone_number: str
+    username: str
+    password: str
+    role: str
+    business_id: Optional[int] = None  # Admin might provide this
+    preferred_language: Optional[str] = "en"
+    whatsapp_number: Optional[str] = None,
+    is_phone_verified:bool

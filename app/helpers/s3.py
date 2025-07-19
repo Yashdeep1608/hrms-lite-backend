@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import boto3
 import os
 from dotenv import load_dotenv
@@ -19,18 +20,40 @@ s3_client = boto3.client(
     region_name=AWS_REGION
 )
 
-def upload_file_to_s3(upload_file: UploadFile, filename: str = None, folder: str = "uploads"):
-    if not filename:
-        filename = f"{uuid4().hex}.jpg"  # fallback filename
+def determine_file_category(content_type: str) -> str:
+    if content_type.startswith("image/"):
+        return "image"
+    elif content_type.startswith("video/"):
+        return "video"
+    elif content_type == "application/pdf":
+        return "pdf"
+    elif content_type in ["text/csv"]:
+        return "csv"
+    elif content_type.startswith("application/"):
+        return "document"
+    else:
+        return "others"
 
-    s3_key = f"{folder}/{filename}"
+def upload_file_to_s3(upload_file: UploadFile, filename: str = None, folder: str = "uploads"):
+    content_type = upload_file.content_type
+    file_category = determine_file_category(content_type)
+
+    # Get the file extension safely
+    extension = os.path.splitext(upload_file.filename)[1] or ""
+
+    # Generate filename using timestamp
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    generated_filename = f"{timestamp}{extension}"
+
+    # Final path in S3: category/timestamp.ext
+    s3_key = f"{file_category}/{generated_filename}"
 
     s3_client.upload_fileobj(
-        Fileobj=upload_file.file,  # the actual file object
+        Fileobj=upload_file.file,
         Bucket=AWS_BUCKET_NAME,
         Key=s3_key,
         ExtraArgs={
-            "ContentType": upload_file.content_type  # from UploadFile, not file object
+            "ContentType": content_type
         }
     )
 

@@ -8,7 +8,7 @@ class BusinessTypeEnum(str, enum.Enum):
 
 class RoleTypeEnum(str,enum.Enum):
     # 🌐 Platform-side roles (your internal team)
-    SUPER_ADMIN = "superadmin"
+    SUPERADMIN = "superadmin"
     PLATFORM_ADMIN = "platform_admin"
     SALES = "sales"
     SUPPORT = "support"
@@ -69,3 +69,61 @@ class CreditType(str,enum.Enum):
     PLATFORM_BONUS = 'platform_bonus'            # Platform-side reward (sales/dev/support)
     MANUAL_ADJUSTMENT = 'manual_adjustment'      # Admin manually credits/debits
     PURCHASE_REWARD = 'purchase_reward'          # Cashback or reward on purchase
+
+# ----------------------------
+# ✅ TICKET STATUS
+# ----------------------------
+class TicketStatus(str, enum.Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+    REOPENED = "reopened"
+    WAITING = "waiting"
+    DUPLICATE = "duplicate"
+
+# ----------------------------
+# ✅ PRIORITY LEVELS
+# ----------------------------
+class TicketPriority(str, enum.Enum):
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+    CRITICAL = "critical"
+
+# ----------------------------
+# ✅ TYPE OF TICKET (DEPARTMENT)
+# ----------------------------
+class TicketType(str, enum.Enum):
+    SALES = "sales"
+    TECHNICAL = "technical"
+    BILLING = "billing"
+    OTHER = "other"
+    ORDER = "order"
+    FEEDBACK = "feedback"
+
+# ----------------------------
+# ✅ ASSIGNED SUPPORT ROLE
+# ----------------------------
+class SupportRole(str, enum.Enum):
+    SUPPORT = "support"
+    SALES = "sales"
+    DEVELOPER = "developer"
+
+class SenderRole(str, enum.Enum):
+    GUEST = "guest"
+    USER = "user"
+    SUPPORT = "support"
+    ADMIN = "admin"
+    DEVELOPER = "developer"
+    SALES = "sales"
+class TicketActionType(str, enum.Enum):
+    STATUS_CHANGE = "status_change"
+    PRIORITY_CHANGE = "priority_change"
+    ASSIGNMENT = "assignment"
+    COMMENT = "comment"
+    INTERNAL_NOTE = "internal_note"
+    REOPEN = "reopen"
+    CLOSE = "close"
+    ATTACHMENT_ADDED = "attachment_added"
