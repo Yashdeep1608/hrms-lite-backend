@@ -16,4 +16,5 @@ from .contact import *
 from .plan import *
 from .faq import *
 from .support import *
+from .notification import *
 # add all your models here for easy import elsewhere

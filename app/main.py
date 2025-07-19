@@ -3,12 +3,14 @@ from app.helpers.response import ResponseHandler
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support
+from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support,notification
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.core.socket_manager import socket_app  # path where your socket_app is defined
+
 # Use dependency-based authentication, not middleware!
 # from app.middlewares.auth import AuthMiddleware  # REMOVE THIS LINE
 
@@ -59,6 +61,7 @@ app.add_middleware(
 )
 
 app.openapi = custom_openapi
+app.mount("/socket.io", socket_app)
 
 # REMOVE this line, as authentication is now handled by dependencies!
 # app.add_middleware(AuthMiddleware)
@@ -77,3 +80,4 @@ app.include_router(payment.router)
 app.include_router(faq.router)
 app.include_router(faq.router)
 app.include_router(support.router)
+app.include_router(notification.router)

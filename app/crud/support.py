@@ -4,8 +4,12 @@ from sqlalchemy.orm import Session,joinedload
 from app.models.support import MessageAttachment, SupportTicket, SupportMessage, TicketAttachment
 from app.models.enums import RoleTypeEnum, TicketPriority, SenderRole, TicketActionType
 from app.models.user import User
+from app.schemas.notification import NotificationCreate
 from app.schemas.support import TicketCreate, TicketFilters, TicketMessageCreate, TicketUpdate
 from datetime import datetime, timezone
+from fastapi.concurrency import run_in_threadpool
+import asyncio
+from app.services.notifications.notification_service import send_notification
 
 
 #Create Support Ticket for User 
@@ -234,7 +238,6 @@ def get_all_tickets(
 
     return tickets, total
 
-#Assign Ticket to User
 def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
     ticket = db.query(SupportTicket).filter(SupportTicket.id == payload.ticket_id).first()
 
@@ -248,14 +251,16 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
     old_assigned = ticket.assigned_to
 
     action_messages = []
+    updated_fields = []
 
-    # Change assignment
+    # Assignment
     if payload.user_id and payload.user_id != old_assigned:
         assignee = db.query(User).filter(User.id == payload.user_id).first()
         ticket.assigned_to = payload.user_id
         action_messages.append(
             f"Ticket assigned to {assignee.first_name} by {current_user.first_name}"
         )
+        updated_fields.append("Assignee")
 
     # Status update
     if payload.status and payload.status != old_status:
@@ -263,6 +268,7 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
         action_messages.append(
             f"Status changed to {payload.status.upper()} by {current_user.first_name}"
         )
+        updated_fields.append("Status")
 
     # Type update
     if payload.ticket_type and payload.ticket_type != old_type:
@@ -270,6 +276,7 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
         action_messages.append(
             f"Type changed to {payload.ticket_type.capitalize()} by {current_user.first_name}"
         )
+        updated_fields.append("Type")
 
     # Priority update
     if payload.priority and payload.priority != old_priority:
@@ -277,13 +284,15 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
         action_messages.append(
             f"Priority changed to {payload.priority.capitalize()} by {current_user.first_name}"
         )
+        updated_fields.append("Priority")
 
     db.commit()
     db.refresh(ticket)
+
+    # Detect sender role
     if ticket.user_id == current_user.id:
         sender_role = SenderRole.USER
     else:
-        # platform user roles
         if current_user.role == RoleTypeEnum.SUPERADMIN or current_user.role == RoleTypeEnum.PLATFORM_ADMIN:
             sender_role = SenderRole.ADMIN
         elif current_user.role == RoleTypeEnum.DEVELOPER:
@@ -293,16 +302,40 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
         elif current_user.role == RoleTypeEnum.SUPPORT:
             sender_role = SenderRole.SUPPORT
         else:
-            sender_role = SenderRole.USER  # fallback for others
-    # Add system messages
+            sender_role = SenderRole.USER  # fallback
+
+    # Save internal ticket messages
     for msg in action_messages:
-        system_message = SupportMessage(
+        db.add(SupportMessage(
             ticket_id=ticket.id,
             sender_id=None,
             sender_role=sender_role,
             content=msg
-        )
-        db.add(system_message)
+        ))
+
+    # Send notification (real-time + DB)
+    if updated_fields:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(send_notification(
+                db,
+                NotificationCreate(
+                    user_id=ticket.user_id,
+                    type="support",
+                    message=f"Your support ticket #{ticket.id} has been updated ({', '.join(updated_fields)})",
+                    url="/support"
+                )
+            ))
+        except RuntimeError:
+            asyncio.run(send_notification(
+                db,
+                NotificationCreate(
+                    user_id=ticket.user_id,
+                    type="support",
+                    message=f"Your support ticket #{ticket.id} has been updated ({', '.join(updated_fields)})",
+                    url="/support"
+                )
+            ))
 
     db.commit()
     return ticket
