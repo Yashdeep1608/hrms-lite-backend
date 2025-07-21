@@ -1,24 +1,53 @@
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
+from app.helpers.utils import parse_date_to_utc_end, parse_date_to_utc_start
 from app.models.coupon import Coupon
 from sqlalchemy.orm import Session
-from app.schemas.coupon import CreateCoupon, UpdateCoupon
+from app.models.enums import RoleTypeEnum
+from app.models.user import User
+from app.schemas.coupon import CouponFilters, CreateCoupon, UpdateCoupon
 
-def create_coupon(db: Session, data: CreateCoupon) -> Coupon:
+def create_coupon(db: Session, data: CreateCoupon, current_user: User) -> Coupon:
     coupon = Coupon(
-        code = data.code,
-        type = data.type,
-        user_id = data.user_id or None,
-        platform_target = data.platform_target,
-        business_id = data.business_id or None,
-        discount_type = data.discount_type,
-        discount_value = data.discount_value,
-        usage_limit = data.usage_limit,
-        valid_from = data.valid_from,
-        valid_to = data.valid_to,
-        is_active = data.is_active
+        code=data.code,
+        type=data.type,
+
+        # Required fields
+        label=data.label,
+        description=data.description,
+        discount_type=data.discount_type,
+        discount_value=data.discount_value,
+
+        # Limits & logic
+        usage_limit=data.usage_limit,
+        available_limit=data.available_limit,
+        max_discount_amount=data.max_discount_amount,
+        min_cart_value=data.min_cart_value or 0,
+        is_auto_applied=data.is_auto_applied,
+        is_active=data.is_active,
+
+        # Date
+        valid_from = datetime.combine(data.valid_from, datetime.min.time()).replace(tzinfo=timezone.utc),
+        valid_to = datetime.combine(data.valid_to + timedelta(days=1), datetime.min.time()).replace(tzinfo=timezone.utc),
+
+
+        # Platform fields
+        user_id=data.user_id,
+        platform_target=data.platform_target,
+
+        # Business
+        business_id=current_user.business_id,
+
+        # Audit
+        created_by_user_id =current_user.id,
+
+        # JSONB exclusions
+        exclude_product_ids=data.exclude_product_ids or [],
+        exclude_service_ids=data.exclude_service_ids or [],
     )
+
     db.add(coupon)
     db.commit()
     db.refresh(coupon)
@@ -40,23 +69,68 @@ def update_coupon(db: Session, coupon_id: int, data: UpdateCoupon) -> Coupon:
     db.refresh(coupon)
     return coupon
 
-def get_coupons(db, type: Optional[str] = None,business_id: Optional[int] = None,user_id: Optional[int] = None):
-    filters = []
-    if type:
-        filters.append(Coupon.type == type)
-    if business_id:
-        filters.append(Coupon.business_id == business_id)
-    if user_id:
-        filters.append(Coupon.user_id == user_id)
-    coupons = db.query(
+def get_coupons(db: Session, filters: CouponFilters,current_user:User) -> List[dict]:
+    query = db.query(
         Coupon.id,
         Coupon.code,
+        Coupon.label,
+        Coupon.type,
         Coupon.discount_type,
-        Coupon.usage_limit,
+        Coupon.discount_value,
+        Coupon.available_limit,
         Coupon.is_active,
-        Coupon.created_at
-        ).filter(and_(*filters) if filters else True).all()
-    return coupons
+        Coupon.user_id,
+        Coupon.created_at,
+    )
+
+    # Filtering
+    conditions = []
+    conditions.append(Coupon.business_id == current_user.business_id)
+    if filters.discount_type:
+        conditions.append(Coupon.discount_type == filters.discount_type)
+
+    if filters.is_active is not None:
+        conditions.append(Coupon.is_active == filters.is_active)
+
+    if filters.user_id:
+        conditions.append(Coupon.user_id == filters.user_id)
+       
+    if filters.from_date:
+        conditions.append(Coupon.created_at >= filters.from_date)
+
+    if filters.to_date:
+        conditions.append(Coupon.created_at <= filters.to_date)
+
+    if filters.search:
+        conditions.append(or_(
+            Coupon.code.ilike(f"%{filters.search}%"),
+            Coupon.label.ilike(f"%{filters.search}%")
+        ))
+
+    if conditions:
+        query = query.filter(and_(*conditions))
+
+    # Sorting
+    sort_field = getattr(Coupon, filters.sort_by, Coupon.created_at)
+    if filters.sort_dir == 'desc':
+        sort_field = sort_field.desc()
+    else:
+        sort_field = sort_field.asc()
+
+    query = query.order_by(sort_field)
+
+    total = query.count()
+
+    # Pagination
+    offset = (filters.page - 1) * filters.page_size
+    query = query.offset(offset).limit(filters.page_size)
+
+    results = query.all()
+    return {
+        'total': total,
+        'items': [dict(row._mapping) for row in results]
+    }
+    
 
 def get_coupon_details(db, coupon_id: int):
     coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()

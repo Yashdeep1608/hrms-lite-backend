@@ -49,13 +49,13 @@ class User(Base):
     payments = relationship("UserPayment", back_populates="user")
     orders = relationship("UserOrder", back_populates="user")
     plans = relationship("UserPlan", back_populates="user")
-    coupons = relationship("Coupon", back_populates="user")
     credits = relationship("UserCredit", back_populates="user")
     created_tickets = relationship("SupportTicket", foreign_keys="[SupportTicket.user_id]", back_populates="user")
     assigned_tickets = relationship("SupportTicket", foreign_keys="[SupportTicket.assigned_to]", back_populates="assigned_user")
     support_messages = relationship("SupportMessage", foreign_keys="[SupportMessage.sender_id]", back_populates="sender")
     ticket_logs = relationship("TicketActionLog", foreign_keys="[TicketActionLog.actor_id]", back_populates="actor")
-
+    created_coupons = relationship("Coupon",foreign_keys="[Coupon.created_by_user_id]",back_populates="created_by")
+    coupons = relationship("Coupon",foreign_keys="[Coupon.user_id]",back_populates="user")
 
 class UserPayment(Base):
     __tablename__ = "user_payments"

@@ -17,4 +17,5 @@ from .plan import *
 from .faq import *
 from .support import *
 from .notification import *
+from .coupon import *
 # add all your models here for easy import elsewhere
