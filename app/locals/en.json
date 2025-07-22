@@ -114,5 +114,8 @@
   "faqs_retrieved": "FAQs fetched successfully",
   "faq_retrieved": "FAQ retrieved successfully",
   "faq_deleted": "FAQ deleted successfully",
-  "faq_not_found":"FAQ not found"
+  "faq_not_found":"FAQ not found",
+  "updated_successfully":"Updated successfully",
+  "deleted_successfully":"Deleted successfully",
+  "created_successfully":"Created successfully"
 }

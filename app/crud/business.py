@@ -134,8 +134,10 @@ def get_categories_by_business(
     is_active: Optional[bool] = None,
     parent_id: Optional[int] = None,
     sort_by: str = 'created_at',
-    sort_dir: str = 'desc'
-) -> List[Category]:
+    sort_dir: str = 'desc',
+    skip: int = 0,
+    limit: int = 50
+):
     query = db.query(Category).filter(Category.business_id == business_id)
 
     # Filter: search by name (assumes multilingual structure like { "en": "Shoes" })
@@ -146,26 +148,52 @@ def get_categories_by_business(
     if is_active is not None:
         query = query.filter(Category.is_active == is_active)
 
-    # Filter: parent_id (e.g., show subcategories only)
+    # Filter: parent_id for nested categories
     if parent_id is not None:
         query = query.filter(Category.parent_id == parent_id)
-    else:
-        query = query.filter(Category.parent_id.is_(None))  # Show only top-level categories if no parent_id is provided
 
-    # Sorting logic
+    total = query.count()
+
+    # Sorting
     sort_column_map = {
         "name": Category.name['en'].astext,
         "created_at": Category.created_at,
         "parent_id": Category.parent_id,
         "is_active": Category.is_active,
-        # Add more if needed
     }
-
     sort_column = sort_column_map.get(sort_by, Category.created_at)
     sort_method = asc if sort_dir == 'asc' else desc
-    query = query.order_by(sort_method(sort_column))
+    query = query.order_by(sort_method(sort_column)).offset(skip).limit(limit)
+    items = query.all()
 
-    return query.all()
+    # Get all top-level categories (used for parent category dropdown)
+    if parent_id is not None:
+        parent_categories = (
+        db.query(Category)
+        .filter(Category.business_id == business_id)
+        .filter(
+            or_(
+                Category.id == parent_id,
+                Category.parent_id == parent_id
+            )
+        )
+        .order_by(Category.name['en'].astext.asc())
+        .all()
+    )
+    else:
+        parent_categories = (
+            db.query(Category)
+            .filter(Category.business_id == business_id)
+            .filter(Category.parent_id.is_(None))
+            .order_by(Category.name['en'].astext.asc())
+            .all()
+        )
+
+    return {
+        "items": items,
+        "total": total,
+        "parent_categories": parent_categories,
+    }
 
 def get_category_by_id(db: Session, category_id: int) -> Optional[Category]:
     return db.query(Category).filter(Category.id == category_id).first()
@@ -187,17 +215,40 @@ def toggle_category(db: Session, category: Category):
     db.refresh(category)
     return category
 
-def get_categories_for_dropdown(db: Session, business_id: int) -> List[Category]:
-    return (
+def get_categories_for_dropdown(
+    db: Session,
+    business_id: int,
+) -> List[Category]:
+    # Step 1: Fetch all categories
+    categories = (
         db.query(Category)
-        .filter(Category.business_id == business_id,Category.parent_id.is_(None), Category.is_active == True)
-        .with_entities(Category.id, Category.name)
+        .filter(
+            Category.business_id == business_id,
+            Category.is_active == True
+        )
+        .order_by(Category.name['en'].astext.asc())
         .all()
     )
-def get_subcategories_for_dropdown(db: Session, business_id: int) -> List[Category]:
-    return (
-        db.query(Category)
-        .filter(Category.business_id == business_id,Category.parent_id > 0 ,Category.is_active == True)
-        .with_entities(Category.id, Category.name,Category.parent_id)
-        .all()
-    )
+
+    # Step 2: Index categories by ID
+    category_dict = {
+        cat.id: {
+            "id": cat.id,
+            "name": cat.name.get("en", "Unnamed Category"),
+            "parent_id": cat.parent_id,
+            "children": []
+        }
+        for cat in categories
+    }
+
+    # Step 3: Build the nested tree
+    root_categories = []
+    for cat in category_dict.values():
+        if cat["parent_id"]:
+            parent = category_dict.get(cat["parent_id"])
+            if parent:
+                parent["children"].append(cat)
+        else:
+            root_categories.append(cat)
+    
+    return root_categories

@@ -1,119 +1,101 @@
-from typing import List, Optional, Literal, Dict
-from datetime import datetime
+from typing import List, Optional, Literal, Dict, Union
+from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, condecimal
 
 
-# ----------------------------
-# Product Image Schema
-# ----------------------------
-class ProductImageBase(BaseModel):
-    media_url: str # URL of the image
-    media_type: str # Type of media (e.g., 'image', 'video')
-    is_primary: Optional[bool] = False # Indicates if this is the primary image
+# ---------- Master Data ----------
+class ProductMasterDataCreate(BaseModel):
+    type: str
+    options: List[str]
+
+class ProductMasterDataUpdate(BaseModel):
+    id:int
+    type: str
+    options: Optional[List[str]] = None
 
 
-class ProductImageCreate(ProductImageBase):
-    product_id: Optional[int] = None
-    variant_id: Optional[int] = None
+# ---------- Custom Fields ----------
+class ProductCustomFieldCreate(BaseModel):
+    field_name: str
+    field_type: str
+    is_required: Optional[bool] = False
+    is_filterable: Optional[bool] = False
+    options: Optional[List[str]] = None
+class ProductCustomFieldUpdate(BaseModel):
+    id:int
+    field_name: str
+    field_type: str
+    is_required: Optional[bool] = False
+    is_filterable: Optional[bool] = False
+    options: Optional[List[str]] = None
 
 
-class ProductImageOut(ProductImageBase):
-    id: int
-    product_id: Optional[int] = None
-    variant_id: Optional[int] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True, ser_json_timedelta="iso8601")
+class ProductCustomFieldValueCreate(BaseModel):
+    field_id: int
+    value: Union[str, int, float, bool, date]
 
 
-# ----------------------------
-# Product Variant Schema
-# ----------------------------
-class ProductVariantBase(BaseModel):
-    variant_name: Dict[str, str]  # JSONB variant name for multilingual support
-    attributes: Optional[Dict[str, str]] = None  # JSONB attributes for variant (e.g., {"color": "red", "size": "M"})
-    min_qty: int # Minimum quantity for purchase
-    max_qty: int # Maximum quantity for purchase
-    allowed_qty_steps: Optional[List[int]] # Allowed quantity steps for purchase
-    available_qty: Optional[int] = 0 # Available quantity in stock
-    discount_type: Optional[Literal["percentage", "flat"]] = None  # e.g. "percentage", "flat"
-    discount_value: Optional[condecimal(max_digits=10, decimal_places=2)] = None  # type: ignore # e.g. 10 for 10% or 100 for flat $100 off
-    purchase_price: Optional[condecimal(max_digits=10, decimal_places=2)]  # type: ignore 
-    selling_price: Optional[condecimal(max_digits=10, decimal_places=2)]  # type: ignore
-    
-class ProductVariantCreate(ProductVariantBase):
-    images: Optional[List[ProductImageCreate]] = None
+# ---------- Product Image ----------
+class ProductImageCreate(BaseModel):
+    media_url: str
+    media_type: str  # "image", "video", etc.
 
 
-class ProductVariantUpdate(ProductVariantBase):
-    id: Optional[int]
-    images: Optional[List[ProductImageCreate]] = None
-
-
-class ProductVariantOut(ProductVariantBase):
-    id: int
-    images: List[ProductImageOut]
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True, ser_json_timedelta="iso8601")
-
-
-# ----------------------------
-# Product Base Schema
-# ----------------------------
+# ---------- Product Create ----------
 class ProductBase(BaseModel):
-    name: Dict[str, str] #JSONB name for multilingual support
-    sku: Optional[str] = None # SKU for product
-    business_id: int #Business ID to which the product belongs
-    category_id: int # Category ID for product categorization
-    subcategory_id: Optional[int] = None # Optional subcategory ID
-    base_unit: Optional[Literal['g', 'kg', 'ml', 'ltr', 'pcs', 'dozen']] # Base unit of measurement
-    description: Dict[str, str] # JSONB description for multilingual support
-    is_active: bool # Indicates if the product is active
-    tags:Optional[List[str]]
-    include_tax:Optional[bool] # if True, add tax in amount
-    tax_value:Optional[int]
+    name: dict
+    description: Optional[dict] = None
+    image_url: Optional[str] = None
+    is_product_variant: Optional[bool] = False
+
+    parent_product_id: Optional[int] = None
+    category_id: int
+    subcategory_path: List[int]
+
+    purchase_price: Optional[float] = None
+    selling_price: Optional[float] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[float] = None
+    max_discount: Optional[float] = None
+    include_tax: Optional[bool] = False
+    tax_rate: Optional[float] = None
+    hsn_code: Optional[str] = None
+
+    base_unit: str
+    package_type:str
+    stock_qty: Optional[int]
+    low_stock_alert: Optional[int]
+
+    brand: Optional[str] = None
+    manufacturer: Optional[str] = None
+    packed_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+
+    is_active: Optional[bool] = False
+    is_deleted: Optional[bool] = False
+    is_online: Optional[bool] = False
+
+    slug: Optional[str] = None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+    qr_code: Optional[str] = None
 
 
-# ----------------------------
-# Create & Update Schemas
-# ----------------------------
 class ProductCreate(ProductBase):
-    variants: Optional[List[ProductVariantCreate]] = None
-    images: Optional[List[ProductImageCreate]] = None
+    images: Optional[List[ProductImageCreate]] = []
+    custom_field_values: Optional[List[ProductCustomFieldValueCreate]] = []
+    variants: Optional[List["ProductCreate"]] = []  # recursive for variant children
 
 
-class ProductUpdate(ProductBase):
-    id: int
-    variants: Optional[List[ProductVariantUpdate]] = None
-    images: Optional[List[ProductImageCreate]] = None
+ProductCreate.model_rebuild()  # For recursive references
 
-
-# ----------------------------
-# Response Schemas
-# ----------------------------
-class ProductOut(ProductBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    variants: List[ProductVariantOut]
-    images: List[ProductImageOut]
-
-    model_config = ConfigDict(from_attributes=True, ser_json_timedelta="iso8601")
-
-
-class ProductListOut(BaseModel):
-    id: int
-    name: Dict[str, str]
-    sku: Optional[str]
-    is_active: bool
-    primary_image: Optional[str] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True, ser_json_timedelta="iso8601")
-
-
-class ProductListResponse(BaseModel):
-    total: int
-    items: List[ProductListOut]
+class ProductFilters(BaseModel):
+    page: int = 1
+    page_size: int = 20
+    search_text: str = ''
+    is_active: Optional[bool] = None
+    is_online:Optional[bool] = None,
+    sort_by: str = 'created_at'
+    sort_dir: str = 'desc'
+    category_id: Optional[int] = None
+    subcategory_path: Optional[int] = None

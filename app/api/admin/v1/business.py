@@ -106,7 +106,7 @@ def get_categories(
 ):
     lang = get_lang_from_request(request)
     try:
-        categories = crud_business.get_categories_by_business(
+        result = crud_business.get_categories_by_business(
             db=db,
             business_id=business_id,
             search_text=search_text,
@@ -115,23 +115,7 @@ def get_categories(
             sort_by=sort_by,
             sort_dir=sort_dir
         )
-
-        if not categories:
-            return ResponseHandler.not_found(
-                message=translator.t("categories_not_found", lang)
-            )
-
-        category_list = [
-            CategoryOut.model_validate(cat).model_dump(mode="json")
-            for cat in categories
-        ]
-
-        return ResponseHandler.success(
-            data={
-                "items": category_list,
-                "total": len(category_list)
-            }
-        )
+        return ResponseHandler.success(data=jsonable_encoder(result))
 
     except Exception as e:
         return ResponseHandler.bad_request(
@@ -199,35 +183,13 @@ def get_category_dropdown(
 ):
     lang = get_lang_from_request(request)
     try:
-        categories = crud_business.get_categories_for_dropdown(db, business_id)
-        result = [
-            {
-                "id": cat.id,
-                "name": cat.name.get("en", "Unnamed Category")
-            }
-            for cat in categories
-        ]
-        return ResponseHandler.success(data=result)
+        
+        all_categories = crud_business.get_categories_for_dropdown(db,business_id)
+
+        return ResponseHandler.success(data=jsonable_encoder(all_categories))
+
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
-    
-@router.get("/get-subcategory-dropdown/{business_id}")
-def get_category_dropdown(
-    business_id: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    lang = get_lang_from_request(request)
-    try:
-        categories = crud_business.get_subcategories_for_dropdown(db, business_id)
-        result = [
-            {
-                "id": cat.id,
-                "name": cat.name.get("en", "Unnamed Category"),
-                "parent_id": cat.parent_id
-            }
-            for cat in categories
-        ]
-        return ResponseHandler.success(data=result)
-    except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang), error=str(e)
+        )
+

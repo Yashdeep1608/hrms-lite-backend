@@ -1,5 +1,13 @@
-from fastapi import Request
+from io import BytesIO
+import barcode
+from barcode.writer import ImageWriter
+from fastapi import Request, UploadFile
 from datetime import datetime, timedelta, timezone
+from slugify import slugify
+from starlette.datastructures import UploadFile as StarletteUploadFile
+import qrcode
+
+from app.helpers.s3 import upload_file_to_s3
 
 def get_lang_from_request(request: Request):
     return request.headers.get("Accept-Language", "en")
@@ -86,3 +94,27 @@ def apply_operator(column, operator, value, field_type=None):
         return ~column.in_(value)
 
     raise ValueError(f"Unsupported operator '{operator}' for field type '{field_type}'")
+
+def create_upload_file(file_bytes: BytesIO, filename: str, content_type: str = "image/png") -> UploadFile:
+    file_bytes.seek(0)
+    return StarletteUploadFile(filename=filename, file=file_bytes, content_type=content_type)
+
+def generate_qr_code(data: str) -> str:
+    qr = qrcode.QRCode(box_size=10, border=4)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+
+    upload_file = create_upload_file(buffer, f"{slugify(data)}.png", "image/png")
+    return upload_file_to_s3(upload_file, folder="qr_codes")
+
+def generate_barcode(data: str) -> str:
+    buffer = BytesIO()
+    code128 = barcode.get("code128", data, writer=ImageWriter())
+    code128.write(buffer, options={"write_text": False})
+
+    upload_file = create_upload_file(buffer, f"{slugify(data)}.png", "image/png")
+    return upload_file_to_s3(upload_file, folder="barcodes")

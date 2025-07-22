@@ -17,7 +17,6 @@ class Category(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     businesses = relationship("Business", back_populates="categories")
-    main_products = relationship("Product", foreign_keys='Product.category_id', back_populates="main_product_category")
-    sub_products = relationship("Product", foreign_keys='Product.subcategory_id', back_populates="sub_product_category")
+    products = relationship("Product", foreign_keys='Product.category_id',back_populates="product_category")
     main_services = relationship("Service", foreign_keys='Service.category_id', back_populates="main_service_category")
     sub_services = relationship("Service", foreign_keys='Service.subcategory_id', back_populates="sub_service_category")
