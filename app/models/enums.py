@@ -127,3 +127,62 @@ class TicketActionType(str, enum.Enum):
     REOPEN = "reopen"
     CLOSE = "close"
     ATTACHMENT_ADDED = "attachment_added"
+
+class ComboType(str,enum.Enum):
+    PRODUCT = "product"
+    SERVICE = "service"
+
+class OfferConditionType(str, enum.Enum):
+    PRODUCT = "product"                 # product_id(s)
+    SERVICE = "service"                 # service_id(s)
+    CATEGORY = "category"               # category_id(s)
+    CART_TOTAL = "cart_total"           # minimum cart value
+    USER_TAG = "user_tag"               # user has tag X
+    FIRST_ORDER = "first_order"         # only if user has no prior orders
+    CUSTOMER_ID = "customer_id"         # specific user IDs
+    TIME_WINDOW = "time_window"         # applied only within a time window
+    PAYMENT_METHOD = "payment_method"   # COD, Online, Wallet etc.
+
+class OfferRewardType(str, enum.Enum):
+    FLAT = "flat"                            # ₹50 off
+    PERCENTAGE = "percentage"                # 10% off
+    FREE_PRODUCT = "free_product"            # get 1 product free
+    DISCOUNTED_PRODUCT = "discounted_product" # product at ₹X
+    FREE_SERVICE = "free_service"            # get 1 service free
+    DISCOUNTED_SERVICE = "discounted_service" # service at ₹X
+    CASHBACK = "cashback"                    # cashback credited
+    FREE_SHIPPING = "free_shipping"          # waive delivery fees
+
+class ConditionOperator(str, enum.Enum):
+    EQUALS = "equals"
+    IN = "in"
+    NOT_IN = "not_in"
+    GTE = "gte"
+    LTE = "lte"
+    BETWEEN = "between"
+
+class OfferType(str, enum.Enum):
+    FLAT_DISCOUNT = "flat_discount"             # ₹50 off
+    PERCENTAGE_DISCOUNT = "percentage_discount" # 10% off
+    BUY_X_GET_Y = "buy_x_get_y"                 # Buy 2 get 1 free
+    BUNDLE_PRICING = "bundle_pricing"           # Buy combo of A+B for ₹300
+    CART_VALUE_BASED = "cart_value_based"       # ₹100 off on cart >= ₹999
+    CUSTOMER_BASED = "customer_based"           # For first-time or specific users
+    SERVICE_DISCOUNT = "service_discount"       # Applicable to services
+    TIME_LIMITED = "time_limited"               # Flash Sale / Happy Hours
+
+class BannerPosition(str,enum.Enum):
+    HOMEPAGE = "homepage"
+    CATEGORY_PAGE = "category_page"
+    SERVICE_PAGE = "service_page"
+    OFFER_ZONE = "offer_zone"
+    POPUP = "popup"
+    TOP_BAR = "top_bar"
+
+class BannerLinkType(enum.Enum):
+    PRODUCT = "product"
+    SERVICE = "service"
+    CATEGORY = "category"
+    COMBO = "combo"
+    OFFER = "offer"
+    EXTERNAL = "external"
