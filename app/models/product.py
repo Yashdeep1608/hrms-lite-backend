@@ -1,11 +1,11 @@
 # models/product.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    ARRAY, Column, Date, Enum, Integer, String, Text, ForeignKey, CheckConstraint,
-    Numeric, Boolean, TIMESTAMP, UniqueConstraint,DateTime
+    ARRAY, Column, Date, Enum, Integer, String, Text, ForeignKey,
+    Numeric, Boolean,DateTime
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from app.db.base import Base
 
 class Product(Base):
@@ -61,6 +61,8 @@ class Product(Base):
     barcode = Column(String(100), unique=True, nullable=True)
     qr_code = Column(String, nullable=True)
 
+    tags = Column(JSONB, nullable=True) # Searching Tags
+    
     #Audit Log
     created_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -75,7 +77,13 @@ class Product(Base):
     images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
     created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_product")
     product_category = relationship("Category", foreign_keys=[category_id], back_populates="products")
-    parent = relationship("Product", remote_side=[id], backref="variants")
+    parent = relationship(
+        "Product",
+        remote_side=[id],
+        lazy="select",  # or "joined" if you always need parent eagerly
+        backref=backref("variants", lazy="selectin"),
+        cascade="none"
+    )
     custom_field_values = relationship("ProductCustomFieldValue", back_populates="product", cascade="all, delete", passive_deletes=True)
 
 

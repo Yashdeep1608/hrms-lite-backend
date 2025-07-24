@@ -34,18 +34,19 @@ def determine_file_category(content_type: str) -> str:
     else:
         return "others"
 
-def upload_file_to_s3(upload_file: UploadFile, filename: str = None, folder: str = "uploads"):
+def upload_file_to_s3(upload_file: UploadFile, folder: str = None):
+    import mimetypes
+
     content_type = upload_file.content_type
-    file_category = determine_file_category(content_type)
+    if not content_type:
+        content_type = mimetypes.guess_type(upload_file.filename)[0] or "application/octet-stream"
 
-    # Get the file extension safely
+    file_category = folder or determine_file_category(content_type)
+
     extension = os.path.splitext(upload_file.filename)[1] or ""
-
-    # Generate filename using timestamp
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     generated_filename = f"{timestamp}{extension}"
 
-    # Final path in S3: category/timestamp.ext
     s3_key = f"{file_category}/{generated_filename}"
 
     s3_client.upload_fileobj(
@@ -58,4 +59,5 @@ def upload_file_to_s3(upload_file: UploadFile, filename: str = None, folder: str
     )
 
     return f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+
 

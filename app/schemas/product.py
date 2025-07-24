@@ -32,7 +32,7 @@ class ProductCustomFieldUpdate(BaseModel):
 
 class ProductCustomFieldValueCreate(BaseModel):
     field_id: int
-    value: Union[str, int, float, bool, date]
+    value: Optional[Union[str, int, float, bool, date]] = None
 
 
 # ---------- Product Image ----------
@@ -49,8 +49,8 @@ class ProductBase(BaseModel):
     is_product_variant: Optional[bool] = False
 
     parent_product_id: Optional[int] = None
-    category_id: int
-    subcategory_path: List[int]
+    category_id: Optional[int] = None
+    subcategory_path: Optional[List[int]] = None
 
     purchase_price: Optional[float] = None
     selling_price: Optional[float] = None
@@ -61,10 +61,10 @@ class ProductBase(BaseModel):
     tax_rate: Optional[float] = None
     hsn_code: Optional[str] = None
 
-    base_unit: str
-    package_type:str
-    stock_qty: Optional[int]
-    low_stock_alert: Optional[int]
+    base_unit: Optional[str] = None
+    package_type:Optional[str] = None
+    stock_qty: Optional[int] = None
+    low_stock_alert: Optional[int] = None
 
     brand: Optional[str] = None
     manufacturer: Optional[str] = None
@@ -72,14 +72,8 @@ class ProductBase(BaseModel):
     expiry_date: Optional[date] = None
 
     is_active: Optional[bool] = False
-    is_deleted: Optional[bool] = False
     is_online: Optional[bool] = False
-
-    slug: Optional[str] = None
-    sku: Optional[str] = None
-    barcode: Optional[str] = None
-    qr_code: Optional[str] = None
-
+    tags:Optional[List[str]] = None
 
 class ProductCreate(ProductBase):
     images: Optional[List[ProductImageCreate]] = []
@@ -89,6 +83,8 @@ class ProductCreate(ProductBase):
 
 ProductCreate.model_rebuild()  # For recursive references
 
+class ProductUpdate(ProductCreate):
+    id: Optional[int] = None
 class ProductFilters(BaseModel):
     page: int = 1
     page_size: int = 20
@@ -98,4 +94,3 @@ class ProductFilters(BaseModel):
     sort_by: str = 'created_at'
     sort_dir: str = 'desc'
     category_id: Optional[int] = None
-    subcategory_path: Optional[int] = None

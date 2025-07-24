@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
@@ -7,7 +7,7 @@ from app.crud import product as crud_product
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
-from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate
+from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
 
 
 router = APIRouter(
@@ -31,7 +31,7 @@ def create_product(product_in: ProductCreate, request:Request ,db: Session = Dep
 
 
 @router.put("/update-product/{product_id}")
-def update_product(product_id:int,request:Request ,product_in: ProductCreate, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+def update_product(product_id:int,request:Request ,product_in: ProductUpdate, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
         data = crud_product.update_product(db,product_id ,product_in,current_user)
@@ -66,14 +66,32 @@ def get_product_details(product_id: int,request:Request, db: Session = Depends(g
 def get_product_list(request: Request,filters:ProductFilters,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        total, items = crud_product.get_product_list(db, filters,current_user)
-        if not items:
-            return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
+        total, items = crud_product.get_product_list(db, filters,current_user,lang)
+        # if not items:
+        #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
         return ResponseHandler.success(data={"total":total, "items": jsonable_encoder(items)})
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
 
+@router.get("/product-dropdown")
+def get_product_dropdown(
+    request: Request,
+    search: str = Query(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
 
+    try:
+        data = crud_product.get_product_dropdown(db, search, current_user,lang)
+        return ResponseHandler.success(data=jsonable_encoder(data))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+    
 @router.post("/delete-product/{product_id}")
 def toggle_product_status(product_id: int,request:Request ,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -143,7 +161,7 @@ def update_custom_field(payload: ProductCustomFieldUpdate, request: Request, db:
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
-@router.post("/delete-custom-field/{custom_field_id}")
+@router.delete("/delete-custom-field/{custom_field_id}")
 def delete_custom_field(custom_field_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:

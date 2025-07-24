@@ -5,7 +5,7 @@ from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
 from app.models.product import Product, ProductCustomField, ProductCustomFieldValue, ProductImage, ProductMasterData
 from app.models.user import User
-from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate
+from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
 from typing import Tuple, List
 import hashlib
 
@@ -15,18 +15,37 @@ def hash_sku(company_key: str, product_id: int) -> str:
     # Remove non-alphanumeric if needed, take first 12 chars
     return ''.join(filter(str.isalnum, hash_str))[:12]
 
+def generate_unique_slug(db: Session, name: str, business_id: int) -> str:
+    base_slug = slugify(name)  # "second"
+    slug = base_slug
+    index = 1
+    while db.query(Product).filter(Product.slug == slug, Product.business_id == business_id).first():
+        slug = f"{base_slug}-{index}"
+        index += 1
+    return slug
+
 def create_product(db: Session, product_in: ProductCreate, current_user: User):
+    parent_product = None
+
+    # If this is a variant, fetch parent and inherit fields if not set
+    if product_in.parent_product_id:
+        parent_product = db.query(Product).filter(Product.id == product_in.parent_product_id).first()
+
+    def inherit(field_name, fallback=None):
+        return getattr(product_in, field_name, None) or (getattr(parent_product, field_name) if parent_product else fallback)
+
     # Generate slug from name["en"] or first available name
     product_name_en = product_in.name.get("en") or next(iter(product_in.name.values()))
-    slug = slugify(product_name_en)
+    slug = generate_unique_slug(db, product_name_en, current_user.business_id)
 
     product = Product(
         name=product_in.name,
         slug=slug,
         description=product_in.description or None,
-        category_id=product_in.category_id,
-        subcategory_path=product_in.subcategory_path if product_in.subcategory_path else None,
-        base_unit=product_in.base_unit,
+        category_id=inherit("category_id"),
+        subcategory_path=inherit("subcategory_path"),
+        base_unit=inherit("base_unit"),
+        package_type=inherit("package_type"),
         stock_qty=product_in.stock_qty,
         low_stock_alert=product_in.low_stock_alert,
         purchase_price=product_in.purchase_price,
@@ -34,11 +53,12 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
         discount_type=product_in.discount_type,
         discount_value=product_in.discount_value,
         max_discount=product_in.max_discount,
-        include_tax=product_in.include_tax,
-        tax_rate=product_in.tax_rate,
-        hsn_code=product_in.hsn_code,
-        brand=product_in.brand,
-        manufacturer=product_in.manufacturer,
+        include_tax=inherit("include_tax", False),
+        tax_rate=inherit("tax_rate", 0.0),
+        hsn_code=inherit("hsn_code"),
+        image_url=inherit("image_url"),
+        brand=inherit("brand"),
+        manufacturer=inherit("manufacturer"),
         packed_date=product_in.packed_date,
         expiry_date=product_in.expiry_date,
         is_product_variant=product_in.is_product_variant,
@@ -47,20 +67,22 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
         is_online=product_in.is_online or False,
         parent_product_id=product_in.parent_product_id,
         business_id=current_user.business_id,
+        tags=product_in.tags,
         created_by_user_id=current_user.id
     )
-    db.add(product)
-    db.flush()  # To get product.id
 
-    # Generate SKU, barcode, and QR code
+    db.add(product)
+    db.flush()  # Get product.id for SKU generation
+
+    # Generate SKU, barcode, QR
     business = db.query(Business).filter(Business.id == current_user.business_id).first()
     company_key = business.business_key if business and business.business_key else "UNKNOWN"
     product.sku = hash_sku(company_key, product.id)
     product.barcode = generate_barcode(product.sku)
     product.qr_code = generate_qr_code(product.sku)
 
-    # ➕ Add images (only for non-variant products)
-    if product_in.images:
+    # Only add images if not a variant
+    if product_in.images and not product_in.parent_product_id:
         for img in product_in.images:
             image = ProductImage(
                 product_id=product.id,
@@ -69,26 +91,27 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
             )
             db.add(image)
 
-    # ➕ Add custom field values
+    # Add custom field values
     for cfv in product_in.custom_field_values or []:
         cf_value = ProductCustomFieldValue(
             product_id=product.id,
             field_id=cfv.field_id,
-            value=cfv.value
+            value=str(cfv.value) or None
         )
         db.add(cf_value)
 
-    # ➕ Add variants recursively
+    # Recursively create variants
     for variant_data in product_in.variants or []:
-        variant = create_product(db, variant_data, current_user)  # recursion
-        variant.parent_product_id = product.id
+        variant_data.parent_product_id = product.id
+        variant_data.is_product_variant = True
+        create_product(db, variant_data, current_user)
 
     db.commit()
     db.refresh(product)
     return product
 
 
-def update_product(db: Session, product_id: int, product_in: ProductCreate, current_user: User):
+def update_product(db: Session, product_id: int, product_in: ProductUpdate, current_user: User):
     product = db.query(Product).filter(Product.id == product_id, Product.business_id == current_user.business_id).first()
     if not product:
         raise Exception("Product not found")
@@ -98,7 +121,7 @@ def update_product(db: Session, product_id: int, product_in: ProductCreate, curr
         "name", "description", "category_id", "subcategory_path", "base_unit", "stock_qty",
         "low_stock_alert", "purchase_price", "selling_price", "discount_type", "discount_value",
         "max_discount", "include_tax", "tax_rate", "hsn_code", "brand", "manufacturer",
-        "packed_date", "expiry_date", "is_product_variant", "is_active", "is_online", "parent_product_id"
+        "packed_date", "expiry_date", "is_product_variant", "is_active", "is_online", "parent_product_id","tags"
     ]
     for field in updatable_fields:
         if hasattr(product_in, field):
@@ -115,7 +138,6 @@ def update_product(db: Session, product_id: int, product_in: ProductCreate, curr
                 product_id=product.id,
                 media_url=img.media_url,
                 media_type=img.media_type,
-                is_primary=img.media_type == "image" and img.is_primary
             )
             db.add(image)
 
@@ -132,25 +154,34 @@ def update_product(db: Session, product_id: int, product_in: ProductCreate, curr
     # 🔁 Update child variants
     existing_variants = db.query(Product).filter(Product.parent_product_id == product.id).all()
     existing_variant_map = {v.id: v for v in existing_variants}
+
+    # 🔁 Update child variants only if this is a variant-enabled product
     received_variant_ids = []
 
-    for variant_data in product_in.variants or []:
-        if variant_data.id and variant_data.id in existing_variant_map:
-            # 🔁 Update existing variant recursively
-            update_product(db, variant_data.id, variant_data, current_user)
-            received_variant_ids.append(variant_data.id)
-        else:
-            # ➕ New variant creation
-            new_variant = create_product(db, variant_data, current_user)
-            new_variant.parent_product_id = product.id
-            received_variant_ids.append(new_variant.id)
+    if product.is_product_variant:
+        existing_variants = db.query(Product).filter(Product.parent_product_id == product.id).all()
+        existing_variant_map = {v.id: v for v in existing_variants}
 
-    # 🗑️ Delete removed variants
-    for variant in existing_variants:
-        if variant.id not in received_variant_ids:
-            db.query(ProductImage).filter(ProductImage.product_id == variant.id).delete()
-            db.query(ProductCustomFieldValue).filter(ProductCustomFieldValue.product_id == variant.id).delete()
-            db.delete(variant)
+        for variant_data in product_in.variants or []:
+            variant_dict = variant_data.model_dump()  # Converts to dict
+            variant_update = ProductUpdate(**variant_dict)  # Cast to ProductUpdate with id
+
+            if variant_update.id and variant_update.id in existing_variant_map:
+                variant_update.is_product_variant = True
+                update_product(db, variant_update.id, variant_update, current_user)
+                received_variant_ids.append(variant_update.id)
+            else:
+                variant_update.parent_product_id = product.id
+                variant_update.is_product_variant = True
+                new_variant = create_product(db, variant_update, current_user)
+                received_variant_ids.append(new_variant.id)
+
+        # 🗑️ Delete removed variants
+        for variant in existing_variants:
+            if variant.id not in received_variant_ids:
+                db.query(ProductImage).filter(ProductImage.product_id == variant.id).delete()
+                db.query(ProductCustomFieldValue).filter(ProductCustomFieldValue.product_id == variant.id).delete()
+                db.delete(variant)
 
     db.commit()
     db.refresh(product)
@@ -168,96 +199,110 @@ def toggle_product_status(db: Session, status_type:str ,product_id: int):
     return product
 
 def get_product_details(db: Session, product_id: int):
-    # Get the actual product
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         return None
 
-    # If the product has a parent, fetch that instead
-    main_product = product.parent if product.parent_product_id else product
+    # Step 1: Classify product type
+    is_variant = product.is_product_variant and product.parent_product_id is not None
+    is_linked = not product.is_product_variant and product.parent_product_id is not None
+    is_base = not product.parent_product_id  # Any top-level product
 
-    # Eager-load images, custom fields, and variants
+    # Step 2: Determine main product to return
+    main_product_id = product.parent_product_id if is_variant else product.id
+
+    # Step 3: Build load options
+    load_options = [
+        joinedload(Product.images),
+        joinedload(Product.custom_field_values),
+    ]
+
+    # ✅ Only load variants if base and explicitly marked as variantable
+    should_load_variants = (
+        not product.parent_product_id and product.is_product_variant
+    )
+
+    if should_load_variants:
+        load_options.extend([
+            joinedload(Product.variants).joinedload(Product.images),
+            joinedload(Product.variants).joinedload(Product.custom_field_values),
+        ])
+
     main_product = (
         db.query(Product)
-        .options(
-            joinedload(Product.images),
-            joinedload(Product.custom_field_values),
-            joinedload(Product.variants).joinedload(Product.images),
-            joinedload(Product.variants).joinedload(Product.custom_field_values)
-        )
-        .filter(Product.id == main_product.id)
+        .options(*load_options)
+        .filter(Product.id == main_product_id)
         .first()
     )
+
+    # Step 4: Always return empty variants list if no variants loaded
+    if should_load_variants:
+        if not main_product.variants:
+            main_product.variants = []
+    else:
+        main_product.variants = []  # Ensure clean for UI
+
+    # Step 5: Attach linked_products (lightweight)
+    linked_products = []
+    if is_linked:
+        # 27 -> parent 26
+        parent = db.query(Product).filter(Product.id == product.parent_product_id).first()
+        if parent:
+            linked_products.append(parent)
+    elif is_base and not product.is_product_variant:
+        # Only fetch linked children if it's a non-variant base
+        children = (
+            db.query(Product)
+            .filter(
+                Product.parent_product_id == product.id,
+                Product.is_product_variant == False
+            )
+            .all()
+        )
+        linked_products = [p for p in children]
+
+    main_product.linked_products = linked_products
 
     return main_product
 
 
+
 def get_product_list(
     db: Session,
-    filters:ProductFilters,
-    current_user:User
+    filters: ProductFilters,
+    current_user: User,
+    lang: str
 ) -> Tuple[int, List[dict]]:
     skip = (filters.page - 1) * filters.page_size
 
-    PrimaryImage = aliased(ProductImage)
-
-    # Base subquery for filtering (search, status, etc.)
-    base_filter = db.query(Product.id).filter(
-        Product.business_id == current_user.business_id,
-        Product.is_deleted == False
+    query = db.query(Product).filter(
+    Product.business_id == current_user.business_id,
+    Product.is_deleted == False,
+    or_(
+            and_(Product.parent_product_id.is_(None), Product.is_product_variant == False),
+            and_(Product.parent_product_id.is_not(None), Product.is_product_variant == False),
+            and_(Product.parent_product_id.is_(None), Product.is_product_variant == True),
+        )
     )
-
     if filters.is_active is not None:
-        base_filter = base_filter.filter(Product.is_active == filters.is_active)
+        query = query.filter(Product.is_active == filters.is_active)
 
     if filters.category_id is not None:
-        base_filter = base_filter.filter(Product.category_id == filters.category_id)
-    if filters.subcategory_path is not None:
-        base_filter = base_filter.filter(
-            filters.subcategory_path == any_(Product.subcategory_path)
+        query = query.filter(
+            or_(
+                Product.category_id == filters.category_id,
+                Product.subcategory_path.any(filters.category_id)
+            )
         )
+
     if filters.search_text:
         search = f"%{filters.search_text}%"
-        base_filter = base_filter.filter(
+        query = query.filter(
             or_(
-                Product.name['en'].astext.ilike(search),
-                Product.description['en'].astext.ilike(search)
+                Product.name[lang].astext.ilike(search),
+                Product.description[lang].astext.ilike(search)
             )
         )
-
-    # Collect matching product ids
-    matched_ids_subq = base_filter.subquery()
-
-    # Now include those products AND their related variants or parent
-    product_ids_to_show = (
-        db.query(Product.id)
-        .filter(
-            or_(
-                Product.id.in_(select(matched_ids_subq)),
-                Product.parent_product_id.in_(select(matched_ids_subq)),
-                Product.id.in_(
-                    select(Product.parent_product_id)
-                    .where(Product.id.in_(select(matched_ids_subq)))
-                    .where(Product.parent_product_id != None)
-                )
-            )
-        )
-        .distinct()
-        .subquery()
-    )
-
-    # Final query for main product list
-    query = (
-        db.query(Product, PrimaryImage.media_url.label("primary_image"))
-        .outerjoin(
-            PrimaryImage,
-            and_(
-                Product.id == PrimaryImage.product_id,
-                PrimaryImage.is_primary == True
-            )
-        )
-        .filter(Product.id.in_(select(product_ids_to_show)))
-    )
 
     # Sorting
     sort_field = getattr(Product, filters.sort_by, Product.created_at)
@@ -268,19 +313,48 @@ def get_product_list(
     results = query.offset(skip).limit(filters.page_size).all()
 
     items = []
-    for product, primary_image in results:
+    for product in results:
         items.append({
             "id": product.id,
             "name": product.name,
             "sku": product.sku,
             "is_active": product.is_active,
+            "is_online": product.is_online,
             "created_at": product.created_at,
-            "primary_image": primary_image,
+            "primary_image": product.image_url,
             "is_product_variant": product.is_product_variant,
             "parent_product_id": product.parent_product_id
         })
 
     return total, items
+
+def get_product_dropdown(db:Session,search:str,current_user:User,lang:str):
+    query = db.query(Product).filter(Product.business_id == current_user.business_id)
+
+   # Only Top Level Product
+    query = query.filter(Product.parent_product_id.is_(None))
+
+
+    if search:
+        search = search.lower()
+        query = query.filter(
+            or_(
+                Product.name[lang].astext.ilike(search),
+                Product.description[lang].astext.ilike(search)
+            )
+        )
+
+    products = query.order_by(Product.name[lang].astext.asc()).all()
+
+    items = [
+        {
+            "id": product.id,
+            "name": product.name.get(lang) if isinstance(product.name, dict) else product.name,
+            "image_url": product.image_url
+        }
+        for product in products
+    ]
+    return items
 
 def delete_product(db: Session, product_id: int):
     product = db.query(Product).filter(Product.id == product_id).first()

@@ -65,7 +65,7 @@ def update_user(user_id: int, data: UserUpdate, request: Request, db: Session = 
 def upload_image(request:Request,file: UploadFile = File(...)):
     lang = get_lang_from_request(request)
     try:
-        file_url = upload_file_to_s3(file, file.filename)
+        file_url = upload_file_to_s3(file)
         return ResponseHandler.success(data={"url": file_url})
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))

@@ -1,4 +1,5 @@
 from io import BytesIO
+import mimetypes
 import barcode
 from barcode.writer import ImageWriter
 from fastapi import Request, UploadFile
@@ -8,6 +9,12 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 import qrcode
 
 from app.helpers.s3 import upload_file_to_s3
+
+class SimpleUploadFile:
+    def __init__(self, filename: str, file: BytesIO, content_type: str):
+        self.filename = filename
+        self.file = file
+        self.content_type = content_type
 
 def get_lang_from_request(request: Request):
     return request.headers.get("Accept-Language", "en")
@@ -95,9 +102,13 @@ def apply_operator(column, operator, value, field_type=None):
 
     raise ValueError(f"Unsupported operator '{operator}' for field type '{field_type}'")
 
-def create_upload_file(file_bytes: BytesIO, filename: str, content_type: str = "image/png") -> UploadFile:
+def create_upload_file(file_bytes: BytesIO, filename: str) -> 'SimpleUploadFile':
     file_bytes.seek(0)
-    return StarletteUploadFile(filename=filename, file=file_bytes, content_type=content_type)
+    content_type, _ = mimetypes.guess_type(filename)
+    if content_type is None:
+        content_type = 'application/octet-stream'
+
+    return SimpleUploadFile(filename, file_bytes, content_type)
 
 def generate_qr_code(data: str) -> str:
     qr = qrcode.QRCode(box_size=10, border=4)
@@ -108,7 +119,7 @@ def generate_qr_code(data: str) -> str:
     buffer = BytesIO()
     img.save(buffer, format="PNG")
 
-    upload_file = create_upload_file(buffer, f"{slugify(data)}.png", "image/png")
+    upload_file = create_upload_file(buffer, f"{slugify(data)}.png")
     return upload_file_to_s3(upload_file, folder="qr_codes")
 
 def generate_barcode(data: str) -> str:
@@ -116,5 +127,5 @@ def generate_barcode(data: str) -> str:
     code128 = barcode.get("code128", data, writer=ImageWriter())
     code128.write(buffer, options={"write_text": False})
 
-    upload_file = create_upload_file(buffer, f"{slugify(data)}.png", "image/png")
+    upload_file = create_upload_file(buffer, f"{slugify(data)}.png")
     return upload_file_to_s3(upload_file, folder="barcodes")
