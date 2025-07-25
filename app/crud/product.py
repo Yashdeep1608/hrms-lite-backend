@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
 from typing import Tuple, List
 import hashlib
+from sqlalchemy.orm import subqueryload
 
 def hash_sku(company_key: str, product_id: int) -> str:
     raw = f"{company_key.upper()}_{product_id}"
@@ -213,8 +214,8 @@ def get_product_details(db: Session, product_id: int):
 
     # Step 3: Build load options
     load_options = [
-        joinedload(Product.images),
-        joinedload(Product.custom_field_values),
+        subqueryload(Product.images),
+        subqueryload(Product.custom_field_values),
     ]
 
     # ✅ Only load variants if base and explicitly marked as variantable
@@ -224,8 +225,7 @@ def get_product_details(db: Session, product_id: int):
 
     if should_load_variants:
         load_options.extend([
-            joinedload(Product.variants).joinedload(Product.images),
-            joinedload(Product.variants).joinedload(Product.custom_field_values),
+            subqueryload(Product.variants).joinedload(Product.custom_field_values),
         ])
 
     main_product = (
@@ -244,13 +244,28 @@ def get_product_details(db: Session, product_id: int):
 
     # Step 5: Attach linked_products (lightweight)
     linked_products = []
+
     if is_linked:
-        # 27 -> parent 26
+        # Current product is a child (e.g. 27), get parent and siblings
         parent = db.query(Product).filter(Product.id == product.parent_product_id).first()
         if parent:
+            # Add parent first
             linked_products.append(parent)
+
+            # Add siblings (excluding the current product)
+            siblings = (
+                db.query(Product)
+                .filter(
+                    Product.parent_product_id == product.parent_product_id,
+                    Product.id != product.id,
+                    Product.is_product_variant == False  # or True if variant children expected
+                )
+                .all()
+            )
+            linked_products.extend(siblings)
+
     elif is_base and not product.is_product_variant:
-        # Only fetch linked children if it's a non-variant base
+        # Current product is a base non-variant (e.g. 26), get all children
         children = (
             db.query(Product)
             .filter(
