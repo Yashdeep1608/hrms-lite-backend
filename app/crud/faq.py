@@ -8,7 +8,8 @@ from app.schemas.faq import *
 def create_faq(db: Session, faq_in: FAQCreateSchema):
     faq = FAQ(
         business_id=faq_in.business_id,
-        content={"translations": [t.model_dump() for t in faq_in.translations]}
+        question = faq_in.question,
+        answer = faq_in.answer
     )
     db.add(faq)
     db.commit()
@@ -19,8 +20,10 @@ def update_faq(db: Session, faq_id: int, faq_in: FAQUpdateSchema):
     faq = db.query(FAQ).filter(FAQ.id == faq_id).first()
     if not faq:
         raise Exception("FAQ not found")
-    if faq_in.translations is not None:
-        faq.content["translations"] = [t.model_dump() for t in faq_in.translations]
+    if faq_in.question is not None:
+        faq.question = faq_in.question
+    if faq_in.answer is not None:
+        faq.answer = faq_in.answer
     if faq_in.is_active is not None:
         faq.is_active = faq_in.is_active
     db.commit()

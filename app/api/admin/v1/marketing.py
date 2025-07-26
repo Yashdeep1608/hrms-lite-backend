@@ -184,7 +184,7 @@ def create_offer(payload: OfferCreate, request: Request, db: Session = Depends(g
 def list_offers(filters: OfferFilters, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        offers = crud_marketing.get_all_offers(db, filters,current_user)
+        offers = crud_marketing.get_all_offers(db, filters,current_user,lang)
         return ResponseHandler.success(data=jsonable_encoder(offers))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))

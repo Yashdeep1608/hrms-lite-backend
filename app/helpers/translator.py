@@ -6,7 +6,7 @@ import logging
 class Translator:
     def __init__(self, default_lang="en"):
         self.default_lang = default_lang
-        self.supported_langs = ["en", "hi", "hi-en"]
+        self.supported_langs = ["en", "hi"]
         self.translations = self.load_translations()
 
     def load_translations(self):

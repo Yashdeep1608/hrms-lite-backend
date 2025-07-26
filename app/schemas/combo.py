@@ -9,7 +9,6 @@ class ComboItemCreate(BaseModel):
 
 class ComboCreate(BaseModel):
     name: Dict[str, str]  # e.g., {"en": "Pack of 2", "hi": "2 का पैक"}
-    slug: str
     description: Optional[Dict[str, str]] = None
 
     combo_price: float = Field(gt=0)
@@ -46,3 +45,7 @@ class ComboFilter(BaseModel):
     is_featured: Optional[bool] = None
     search: Optional[str] = None  # Will be used to match translated `name` JSONB
     item_type: Optional[str] = None
+    sort_by:Optional[str] = 'created_at'
+    sort_dir:Optional[str] = 'desc'
+    page:Optional[int] = 1
+    page_size:Optional[int] = 20

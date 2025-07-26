@@ -1,4 +1,5 @@
-from sqlalchemy import or_
+from slugify import slugify
+from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session
 from app.models.banner import Banner
 from app.models.combo import Combo, ComboItem
@@ -99,10 +100,11 @@ def delete_banner(db: Session, banner_id: int):
 
 # Combo Methods 
 def create_combo(db: Session, combo_in: ComboCreate, current_user: User):
+    slug = slugify(combo_in.name.lower())
     combo = Combo(
         business_id=current_user.business_id,
         name=combo_in.name,
-        slug=combo_in.slug,
+        slug=slug,
         description=combo_in.description,
         combo_price=combo_in.combo_price,
         discount_type=combo_in.discount_type,
@@ -161,8 +163,32 @@ def delete_combo(db: Session, combo_id: int):
     return True
 
 def get_all_combos(db: Session, filters: ComboFilter, current_user: User):
-    query = db.query(Combo).filter(Combo.business_id == current_user.business_id)
+    subq = (
+        db.query(
+            ComboItem.combo_id,
+            func.array_agg(distinct(ComboItem.item_type)).label("item_types")
+        )
+        .group_by(ComboItem.combo_id)
+        .subquery()
+    )
 
+    query = (
+        db.query(
+            Combo.id,
+            Combo.image_url,
+            Combo.name,
+            Combo.combo_price,
+            Combo.is_active,
+            Combo.is_featured,
+            Combo.is_online,
+            Combo.created_at,
+            subq.c.item_types
+        )
+        .join(subq, Combo.id == subq.c.combo_id)
+        .filter(Combo.business_id == current_user.business_id)
+    )
+
+    # Filtering
     if filters.is_active is not None:
         query = query.filter(Combo.is_active == filters.is_active)
     if filters.is_online is not None:
@@ -170,17 +196,51 @@ def get_all_combos(db: Session, filters: ComboFilter, current_user: User):
     if filters.is_featured is not None:
         query = query.filter(Combo.is_featured == filters.is_featured)
     if filters.search:
-        query = query.filter(Combo.name['en'].astext.ilike(f"%{filters.search}%"))  # optional: add multilingual
+        query = query.filter(Combo.name.astext.ilike(f"%{filters.search}%"))
 
     if filters.item_type:
-        query = query.join(Combo.items).filter(ComboItem.item_type == filters.item_type)
+        item_type = filters.item_type.lower()
+        if item_type in {"product", "service"}:
+            query = query.filter(
+                func.array_length(subq.c.item_types, 1) == 1,
+                subq.c.item_types[1] == item_type
+            )
+        elif item_type == "hybrid":
+            query = query.filter(func.array_length(subq.c.item_types, 1) > 1)
 
     total = query.count()
-    combos = query.order_by(Combo.created_at.desc()).all()
+
+    # Sorting
+    sort_field = getattr(Combo, filters.sort_by or "created_at", Combo.created_at)
+    sort_order = sort_field.desc() if (filters.sort_dir or "desc").lower() == "desc" else sort_field.asc()
+    query = query.order_by(sort_order)
+
+    # Pagination
+    page = filters.page or 1
+    page_size = filters.page_size or 20
+    offset = (page - 1) * page_size
+    combos = query.offset(offset).limit(page_size).all()
+
+    # Format result
+    result = []
+    for combo in combos:
+        combo_type = "hybrid" if len(combo.item_types or []) > 1 else combo.item_types[0] if combo.item_types else None
+
+        result.append({
+            "id": combo.id,
+            "name": combo.name,
+            "image_url": combo.image_url,
+            "combo_price": combo.combo_price,
+            "is_active": combo.is_active,
+            "is_featured": combo.is_featured,
+            "is_online": combo.is_online,
+            "created_at": combo.created_at,
+            "type": combo_type,
+        })
 
     return {
         "total": total,
-        "items": combos
+        "items": result
     }
 
 def get_combo(db:Session,combo_id:int):
@@ -280,7 +340,7 @@ def get_all_offers(db: Session, filters:OfferFilters, current_user: User):
     if filters.is_active is not None:
         query = query.filter(Offer.is_active == filters.is_active)
     if filters.search:
-        query = query.filter(Offer.name["en"].astext.ilike(f"%{filters.search}%"))
+        query = query.filter(Offer.name.astext.ilike(f"%{filters.search}%"))
     if filters.from_date:
         query = query.filter(Offer.valid_from >= filters.from_date)
     if filters.to_date:

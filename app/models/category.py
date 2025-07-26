@@ -1,14 +1,13 @@
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 from sqlalchemy import Boolean, Column, DateTime, Integer, ForeignKey,String
-from sqlalchemy.dialects.postgresql import JSONB
 from app.db.base import Base
 
 class Category(Base):
     __tablename__ = 'categories'
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(JSONB, nullable=False)
+    name = Column(String(100), nullable=False)
     parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
     business_id = Column(Integer,ForeignKey('businesses.id'),nullable = False)
     is_active = Column(Boolean, default=True)

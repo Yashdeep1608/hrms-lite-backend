@@ -12,8 +12,8 @@ class Offer(Base):
     id = Column(Integer, primary_key=True)
     
     # General
-    name = Column(JSONB, nullable=False)
-    description = Column(JSONB, nullable=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(2000), nullable=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # null = platform offer
     offer_type = Column(Enum(OfferType), nullable=False)  # enum: flat, percentage, bxgy, bundle, etc.
 

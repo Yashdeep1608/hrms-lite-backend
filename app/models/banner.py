@@ -1,9 +1,8 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Float, Boolean
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base import Base
-from app.models.enums import BannerLinkType, BannerPosition, ComboType
-from sqlalchemy.dialects.postgresql import JSONB
+from app.models.enums import BannerLinkType, BannerPosition
 
 class Banner(Base):
     __tablename__ = "banners"
@@ -11,8 +10,8 @@ class Banner(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # Null = platform banner
 
-    title = Column(JSONB, nullable=True)  # Can support multilingual
-    image_url = Column(String, nullable=False)
+    title = Column(String(100), nullable=True)  # Can support multilingual
+    image_url = Column(String(1000), nullable=False)
 
     link_type = Column(Enum(BannerLinkType), nullable=True)
     link_target_id = Column(Integer, nullable=True)  # ID of the target product/service/etc

@@ -15,8 +15,8 @@ class Product(Base):
     business_id = Column(Integer, ForeignKey('businesses.id'), nullable=False)
 
     # Basic
-    name = Column(JSONB, nullable=False)
-    description = Column(JSONB, nullable=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(1000), nullable=True)
     image_url = Column(String, nullable=False)
     is_product_variant = Column(Boolean,default=False)
 

@@ -136,7 +136,6 @@ def get_service_list(
     sort_dir: str = 'desc',
     category_id: int = None,
     subcategory_id: int = None,
-    lang: str = 'en'
 ) -> Tuple[int, List[dict]]:
     skip = (page - 1) * page_size
 
@@ -161,8 +160,8 @@ def get_service_list(
         search = f"%{search_text}%"
         query = query.filter(
             or_(
-                Service.name[lang].astext.ilike(search),
-                Service.description[lang].astext.ilike(search)
+                Service.name.astext.ilike(search),
+                Service.description.astext.ilike(search)
             )
         )
 

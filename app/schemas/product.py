@@ -1,6 +1,6 @@
-from typing import List, Optional, Literal, Dict, Union
-from datetime import date, datetime
-from pydantic import BaseModel, ConfigDict, condecimal
+from typing import List, Optional, Union
+from datetime import date
+from pydantic import BaseModel
 
 
 # ---------- Master Data ----------
@@ -43,8 +43,8 @@ class ProductImageCreate(BaseModel):
 
 # ---------- Product Create ----------
 class ProductBase(BaseModel):
-    name: dict
-    description: Optional[dict] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
     image_url: Optional[str] = None
     is_product_variant: Optional[bool] = False
 

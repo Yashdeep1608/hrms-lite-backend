@@ -15,8 +15,8 @@ class Coupon(Base):
 
     # UI Friendly
     label = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-
+    description = Column(String(2000), nullable=False)
+    terms_condition = Column(String(2000),nullable=True)
     # Platform-specific
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # sales/influencer
     platform_target = Column(String, nullable=True)  # optional: "influencer", "sales", "marketing", etc.
@@ -42,7 +42,6 @@ class Coupon(Base):
 
     created_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    # ✅ JSONB Exclusions
     exclude_product_ids = Column(JSONB, default=[])
     exclude_service_ids = Column(JSONB, default=[])
 

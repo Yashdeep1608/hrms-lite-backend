@@ -1,5 +1,4 @@
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Boolean,String,Enum, Text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import func
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone

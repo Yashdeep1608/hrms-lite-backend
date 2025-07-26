@@ -90,7 +90,6 @@ def delete_tag(db: Session, tag_id: UUID):
         db.commit()
     return tag
 
-
 def create_group(db: Session, business_id: int, data: GroupCreate, created_by: int):
     group = Groups(
         business_id=business_id,
@@ -232,7 +231,6 @@ def get_contact_by_business_contact_id(db: Session, business_contact_id: UUID):
         .filter_by(id=business_contact_id)
         .first()
     )
-
 
 def get_contacts_for_dropdown(db: Session,user:dict ,business_id: int, search: str = "", page: int = 1, page_size: int = 30):
     query = db.query(

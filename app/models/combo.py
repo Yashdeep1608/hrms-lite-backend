@@ -3,7 +3,6 @@ from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base import Base
 from app.models.enums import ComboType
-from sqlalchemy.dialects.postgresql import JSONB
 
 class Combo(Base):
     __tablename__ = "combos"
@@ -11,9 +10,9 @@ class Combo(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)  # Null = platform combo
 
-    name = Column(JSONB, nullable=False)
-    slug = Column(String, unique=True, nullable=False)
-    description = Column(JSONB, nullable=True)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(150), unique=True, nullable=False)
+    description = Column(String(2000), nullable=True)
 
     combo_price = Column(Float, nullable=False)
     discount_type = Column(String, default="none")

@@ -12,11 +12,11 @@ class Service(Base):
     __tablename__ = 'services'
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(JSONB, nullable=False)
+    name = Column(String(100), nullable=False)
     business_id = Column(Integer, ForeignKey('businesses.id'), nullable=False)
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
     subcategory_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
-    description = Column(JSONB, nullable=False)
+    description = Column(String(1000), nullable=False)
     price = Column(Numeric,nullable=False)
     discount_type = Column(String, nullable=True)  # e.g. "percentage", "flat"
     discount_value = Column(Numeric, nullable=True)  # e.g. 10 for 10% or 100 for flat $100 off
@@ -39,7 +39,7 @@ class Service(Base):
     tags = Column(JSONB, nullable=True) # Searching Tags 
 
     duration_minutes = Column(Integer,nullable = True) # duration of service in minutes Ex- Yoga (60) , Haircut (30)
-    cancellation_policy = Column(JSONB, nullable=True) # Ex- 24 hours prior to service start time
+    cancellation_policy = Column(String(1000), nullable=True) # Ex- 24 hours prior to service start time
     
     is_featured = Column(Boolean, default=False) #For featured services
     is_active = Column(Boolean,nullable=False)

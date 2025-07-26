@@ -17,6 +17,7 @@ def create_coupon(db: Session, data: CreateCoupon, current_user: User) -> Coupon
         # Required fields
         label=data.label,
         description=data.description,
+        terms_condition=data.terms_condition,
         discount_type=data.discount_type,
         discount_value=data.discount_value,
 

@@ -9,7 +9,7 @@ class CouponBase(BaseModel):
     discount_value: float
     label: str
     description: str
-
+    terms_condition:str
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
     usage_limit: Optional[int] = None
@@ -33,6 +33,7 @@ class CreateCoupon(CouponBase):
 class UpdateCoupon(BaseModel):
     label: Optional[str] = None
     description: Optional[str] = None
+    terms_condition: Optional[str] = None
     code: Optional[str] = None
     discount_type: Optional[str] = None
     discount_value: Optional[float] = None

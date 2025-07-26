@@ -1,3 +1,4 @@
+from decimal import Decimal
 from slugify import slugify
 from sqlalchemy import any_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
@@ -15,6 +16,35 @@ def hash_sku(company_key: str, product_id: int) -> str:
     hash_str = hashlib.sha1(raw.encode()).hexdigest().upper()
     # Remove non-alphanumeric if needed, take first 12 chars
     return ''.join(filter(str.isalnum, hash_str))[:12]
+
+def calculate_final_price(product):
+    selling_price = product.selling_price or Decimal(0)
+    discount_type = product.discount_type
+    discount_value = product.discount_value or Decimal(0)
+    max_discount = product.max_discount or Decimal(0)
+    include_tax = product.include_tax
+    tax_rate = product.tax_rate or Decimal(0)
+
+    discount_amount = Decimal(0)
+
+    if discount_type == "percentage":
+        discount_amount = selling_price * discount_value / 100
+    elif discount_type == "flat":
+        discount_amount = discount_value
+
+    if max_discount > 0:
+        discount_amount = min(discount_amount, max_discount)
+
+    price_after_discount = selling_price - discount_amount
+
+    # Add tax if not included
+    if not include_tax and tax_rate > 0:
+        tax_amount = price_after_discount * tax_rate / 100
+    else:
+        tax_amount = Decimal(0)
+
+    final_price = price_after_discount + tax_amount
+    return round(final_price, 2)
 
 def generate_unique_slug(db: Session, name: str, business_id: int) -> str:
     base_slug = slugify(name)  # "second"
@@ -35,9 +65,8 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
     def inherit(field_name, fallback=None):
         return getattr(product_in, field_name, None) or (getattr(parent_product, field_name) if parent_product else fallback)
 
-    # Generate slug from name["en"] or first available name
-    product_name_en = product_in.name.get("en") or next(iter(product_in.name.values()))
-    slug = generate_unique_slug(db, product_name_en, current_user.business_id)
+    # Generate slug from name or first available name
+    slug = generate_unique_slug(db, product_in.name, current_user.business_id)
 
     product = Product(
         name=product_in.name,
@@ -286,7 +315,6 @@ def get_product_list(
     db: Session,
     filters: ProductFilters,
     current_user: User,
-    lang: str
 ) -> Tuple[int, List[dict]]:
     skip = (filters.page - 1) * filters.page_size
 
@@ -314,8 +342,8 @@ def get_product_list(
         search = f"%{filters.search_text}%"
         query = query.filter(
             or_(
-                Product.name[lang].astext.ilike(search),
-                Product.description[lang].astext.ilike(search)
+                Product.name.astext.ilike(search),
+                Product.description.astext.ilike(search)
             )
         )
 
@@ -343,7 +371,7 @@ def get_product_list(
 
     return total, items
 
-def get_product_dropdown(db:Session,search:str,current_user:User,lang:str):
+def get_product_dropdown(db:Session,search:str,current_user:User):
     query = db.query(Product).filter(Product.business_id == current_user.business_id)
 
    # Only Top Level Product
@@ -354,18 +382,19 @@ def get_product_dropdown(db:Session,search:str,current_user:User,lang:str):
         search = search.lower()
         query = query.filter(
             or_(
-                Product.name[lang].astext.ilike(search),
-                Product.description[lang].astext.ilike(search)
+                Product.name.astext.ilike(search),
+                Product.description.astext.ilike(search)
             )
         )
 
-    products = query.order_by(Product.name[lang].astext.asc()).all()
+    products = query.order_by(Product.name.astext.asc()).all()
 
     items = [
         {
             "id": product.id,
-            "name": product.name.get(lang) if isinstance(product.name, dict) else product.name,
-            "image_url": product.image_url
+            "name": product.name,
+            "image_url": product.image_url,
+            "final_price": float(calculate_final_price(product))
         }
         for product in products
     ]
