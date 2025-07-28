@@ -66,7 +66,7 @@ def get_product_details(product_id: int,request:Request, db: Session = Depends(g
 def get_product_list(request: Request,filters:ProductFilters,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        total, items = crud_product.get_product_list(db, filters,current_user,lang)
+        total, items = crud_product.get_product_list(db, filters,current_user)
         # if not items:
         #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
         return ResponseHandler.success(data={"total":total, "items": jsonable_encoder(items)})
@@ -83,7 +83,7 @@ def get_product_dropdown(
     lang = get_lang_from_request(request)
 
     try:
-        data = crud_product.get_product_dropdown(db, search, current_user,lang)
+        data = crud_product.get_product_dropdown(db, search, current_user)
         return ResponseHandler.success(data=jsonable_encoder(data))
 
     except Exception as e:

@@ -39,7 +39,7 @@ def get_user_by_id(db: Session, user_id: int):
 
 # Create Ne User
 def create_user(db: Session, user_in: UserCreate):
-    hashed_password = get_username_password_hash(user_in.password)
+    hashed_password = get_password_hash(user_in.password)
     referral_code = generate_unique_referral_code(db)
     
     db_user = User(
@@ -132,7 +132,7 @@ def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
 # Reset User Password
 def reset_user_password(db: Session, user_id:int ,new_password: str):
     user = db.query(User).filter(User.id == user_id).first()
-    user.password = get_username_password_hash(new_password)
+    user.password = get_password_hash(new_password)
     db.commit()
     return user
 
@@ -250,7 +250,7 @@ def changePassword(db: Session, payload:ChangePassword):
             raise Exception("user_not_found")
         if not verify_username_password(payload.current_password, user.password):
             raise Exception("current_password_mismatch")
-        user.password = get_username_password_hash(payload.new_password)
+        user.password = get_password_hash(payload.new_password)
         db.commit()
         return user
     except Exception as e:
@@ -287,7 +287,7 @@ def get_platform_user_list(db:Session,user:User):
 def create_downline_user(db:Session,payload:CreateDownlineUser,user:User):
     # Generate referral code
     referral_code = generate_unique_referral_code(db)
-    hashed_password = get_username_password_hash(payload.password)
+    hashed_password = get_password_hash(payload.password)
     new_user = User(
         first_name=payload.first_name,
         last_name=payload.last_name,

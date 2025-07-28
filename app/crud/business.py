@@ -142,7 +142,7 @@ def get_categories_by_business(
 
     # Filter: search by name
     if search_text:
-        query = query.filter(Category.name.astext.ilike(f"%{search_text}%"))
+        query = query.filter(Category.name.ilike(f"%{search_text}%"))
 
     # Filter: is_active (True/False)
     if is_active is not None:
@@ -156,7 +156,7 @@ def get_categories_by_business(
 
     # Sorting
     sort_column_map = {
-        "name": Category.name.astext,
+        "name": Category.name,
         "created_at": Category.created_at,
         "parent_id": Category.parent_id,
         "is_active": Category.is_active,
@@ -177,7 +177,7 @@ def get_categories_by_business(
                 Category.parent_id == parent_id
             )
         )
-        .order_by(Category.name.astext.asc())
+        .order_by(Category.name.asc())
         .all()
     )
     else:
@@ -185,7 +185,7 @@ def get_categories_by_business(
             db.query(Category)
             .filter(Category.business_id == business_id)
             .filter(Category.parent_id.is_(None))
-            .order_by(Category.name.astext.asc())
+            .order_by(Category.name.asc())
             .all()
         )
 
@@ -226,7 +226,7 @@ def get_categories_for_dropdown(
             Category.business_id == business_id,
             Category.is_active == True
         )
-        .order_by(Category.name.astext.asc())
+        .order_by(Category.name.asc())
         .all()
     )
 

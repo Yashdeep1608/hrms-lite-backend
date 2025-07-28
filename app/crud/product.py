@@ -44,6 +44,8 @@ def calculate_final_price(product):
         tax_amount = Decimal(0)
 
     final_price = price_after_discount + tax_amount
+    if final_price < 0:
+        final_price = 0
     return round(final_price, 2)
 
 def generate_unique_slug(db: Session, name: str, business_id: int) -> str:
@@ -342,8 +344,8 @@ def get_product_list(
         search = f"%{filters.search_text}%"
         query = query.filter(
             or_(
-                Product.name.astext.ilike(search),
-                Product.description.astext.ilike(search)
+                Product.name.ilike(search),
+                Product.description.ilike(search)
             )
         )
 
@@ -382,12 +384,12 @@ def get_product_dropdown(db:Session,search:str,current_user:User):
         search = search.lower()
         query = query.filter(
             or_(
-                Product.name.astext.ilike(search),
-                Product.description.astext.ilike(search)
+                Product.name.ilike(search),
+                Product.description.ilike(search)
             )
         )
 
-    products = query.order_by(Product.name.astext.asc()).all()
+    products = query.order_by(Product.name.asc()).all()
 
     items = [
         {

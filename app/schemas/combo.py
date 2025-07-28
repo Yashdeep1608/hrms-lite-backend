@@ -8,8 +8,8 @@ class ComboItemCreate(BaseModel):
     quantity: int = Field(gt=0)
 
 class ComboCreate(BaseModel):
-    name: Dict[str, str]  # e.g., {"en": "Pack of 2", "hi": "2 का पैक"}
-    description: Optional[Dict[str, str]] = None
+    name: str  # e.g., {"en": "Pack of 2", "hi": "2 का पैक"}
+    description: Optional[str] = None
 
     combo_price: float = Field(gt=0)
     discount_type: Literal["none", "flat", "percentage"] = "none"
@@ -24,8 +24,8 @@ class ComboCreate(BaseModel):
     items: List[ComboItemCreate]
 
 class ComboUpdate(BaseModel):
-    name: Optional[Dict[str, str]] = None
-    description: Optional[Dict[str, str]] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
 
     combo_price: Optional[float] = None
     discount_type: Optional[Literal["none", "flat", "percentage"]] = None

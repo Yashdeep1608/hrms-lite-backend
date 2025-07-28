@@ -16,12 +16,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 180))
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="admin/login")
 
-def get_username_password_hash(password: str) -> str:
+def get_password_hash(password: str) -> str:
     """Hash the password using bcrypt."""
     return pwd_context.hash(password)
 
 def verify_username_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against the hashed password."""
+    print(pwd_context.verify(plain_password, hashed_password))
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:

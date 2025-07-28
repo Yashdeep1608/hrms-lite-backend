@@ -27,7 +27,7 @@ def register_user(user: UserCreate, request: Request,db: Session = Depends(get_d
         if existing_user:
             return ResponseHandler.bad_request(message=translator.t("username_exists", lang))
         
-        if existing_user.phone_number == user.phone_number:
+        if existing_user and existing_user.phone_number == user.phone_number:
             return ResponseHandler.bad_request(message=translator.t("phone_number_exists", lang))
         
         if user.referral_code:

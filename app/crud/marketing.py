@@ -1,6 +1,6 @@
 from slugify import slugify
 from sqlalchemy import distinct, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.models.banner import Banner
 from app.models.combo import Combo, ComboItem
 from app.models.offer import Offer, OfferCondition, OfferReward
@@ -136,7 +136,7 @@ def update_combo(db: Session, combo_id: int, combo_in: ComboUpdate):
     if not combo:
         return None
 
-    update_data = combo_in.model_dump(exclude_unset=True)
+    update_data = combo_in.model_dump(exclude={"items"}, exclude_unset=True)
     for key, value in update_data.items():
         if key == "items":
             combo.items.clear()
@@ -196,7 +196,7 @@ def get_all_combos(db: Session, filters: ComboFilter, current_user: User):
     if filters.is_featured is not None:
         query = query.filter(Combo.is_featured == filters.is_featured)
     if filters.search:
-        query = query.filter(Combo.name.astext.ilike(f"%{filters.search}%"))
+        query = query.filter(Combo.name.ilike(f"%{filters.search}%"))
 
     if filters.item_type:
         item_type = filters.item_type.lower()
@@ -244,7 +244,14 @@ def get_all_combos(db: Session, filters: ComboFilter, current_user: User):
     }
 
 def get_combo(db:Session,combo_id:int):
-    combo = db.query(Combo).filter(Combo.id == combo_id).first()
+    combo = (
+        db.query(Combo)
+        .options(
+            joinedload(Combo.items),         # Load combo items
+        )
+        .filter(Combo.id == combo_id)
+        .first()
+    )
     return combo
 
 
@@ -340,7 +347,7 @@ def get_all_offers(db: Session, filters:OfferFilters, current_user: User):
     if filters.is_active is not None:
         query = query.filter(Offer.is_active == filters.is_active)
     if filters.search:
-        query = query.filter(Offer.name.astext.ilike(f"%{filters.search}%"))
+        query = query.filter(Offer.name.ilike(f"%{filters.search}%"))
     if filters.from_date:
         query = query.filter(Offer.valid_from >= filters.from_date)
     if filters.to_date:

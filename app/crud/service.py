@@ -160,8 +160,8 @@ def get_service_list(
         search = f"%{search_text}%"
         query = query.filter(
             or_(
-                Service.name.astext.ilike(search),
-                Service.description.astext.ilike(search)
+                Service.name.ilike(search),
+                Service.description.ilike(search)
             )
         )
 

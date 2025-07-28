@@ -69,7 +69,7 @@ class BusinessOut(BaseModel):
 
 class CategoryCreateUpdate(BaseModel):
     id:Optional[int] = None
-    name:Dict[str,str]
+    name:str
     parent_id:Optional[int] = None
     business_id: int
     category_image: Optional[str] = None
@@ -77,7 +77,7 @@ class CategoryCreateUpdate(BaseModel):
 
 class CategoryOut(BaseModel):
     id: int
-    name: Dict[str, str]
+    name: str
     parent_id: Optional[int]
     business_id: int
     category_image: Optional[str]

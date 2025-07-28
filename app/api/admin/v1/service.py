@@ -7,7 +7,7 @@ from app.crud import service as crud_service
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
-from app.schemas.service import ServiceCreate, ServiceListOut, ServiceListResponse, ServiceOut, ServiceUpdate
+from app.schemas.service import ServiceCreate, ServiceUpdate
 
 router = APIRouter(
     prefix="/api/admin/v1/service",
@@ -16,7 +16,7 @@ router = APIRouter(
 )
 translator = Translator()
 
-@router.post("/create-service", response_model=ServiceOut)
+@router.post("/create-service")
 def create_service(service_in: ServiceCreate, request:Request ,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
@@ -29,7 +29,7 @@ def create_service(service_in: ServiceCreate, request:Request ,db: Session = Dep
         )
 
 
-@router.put("/update-service", response_model=ServiceOut)
+@router.put("/update-service")
 def update_service(request:Request ,service_in: ServiceUpdate, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
@@ -50,25 +50,25 @@ def toggle_service_status(service_id: int,request:Request ,db: Session = Depends
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
     
-@router.get("/get-service-details/{service_id}", response_model=ServiceOut)
+@router.get("/get-service-details/{service_id}")
 def get_service_details(service_id: int,request:Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
         service = crud_service.get_service_details(db, service_id)
         if not service:
             raise ResponseHandler.not_found(message=translator.t("service_not_found", lang))
-        return ResponseHandler.success(data=ServiceOut.model_validate(service).model_dump(mode='json'))
+        return ResponseHandler.success(data=jsonable_encoder(service))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
 
-@router.get("/get-service-list/{business_id}", response_model=ServiceListResponse)
+@router.get("/get-service-list/{business_id}")
 def get_service_list(business_id: int,request: Request,page: int = 1,page_size: int = 20,search_text:str = '',is_active:bool = None,sort_by:str = 'created_at',sort_dir:str='desc',category_id:int = None , subcategory_id:int =None,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
-        total, items = crud_service.get_service_list(db, business_id, page=page, page_size=page_size,search_text=search_text,is_active=is_active,sort_by=sort_by,sort_dir=sort_dir,category_id=category_id,subcategory_id=subcategory_id,lang=lang)
+        total, items = crud_service.get_service_list(db, business_id, page=page, page_size=page_size,search_text=search_text,is_active=is_active,sort_by=sort_by,sort_dir=sort_dir,category_id=category_id,subcategory_id=subcategory_id)
         if not items:
             return ResponseHandler.not_found(message=translator.t("services_not_found", lang))
-        return ResponseHandler.success(data={"total":total, "items": [ServiceListOut.model_validate(p).model_dump(mode='json') for p in items]}) # type: ignore
+        return ResponseHandler.success(data={"total":total, "items": jsonable_encoder(items)}) # type: ignore
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
 
