@@ -4,7 +4,7 @@ from datetime import datetime
 
 class BannerBase(BaseModel):
     title: Optional[str] = None
-    image_url: HttpUrl
+    image_url: str
     link_type: Optional[str] = None
     link_target_id: Optional[int] = None
     external_url: Optional[str] = None
@@ -31,7 +31,7 @@ class BannerUpdate(BaseModel):
 
 class BannerFilters(BaseModel):
     search: Optional[str] = None  # title or link_text
-    type: Optional[str] = None    # e.g., 'product', 'service', etc.
+    link_type: Optional[str] = None    # e.g., 'product', 'service', etc.
     is_active: Optional[bool] = None
 
     from_date: Optional[datetime] = None

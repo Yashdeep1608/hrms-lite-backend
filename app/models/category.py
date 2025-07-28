@@ -17,5 +17,4 @@ class Category(Base):
 
     businesses = relationship("Business", back_populates="categories")
     products = relationship("Product", foreign_keys='Product.category_id',back_populates="product_category")
-    main_services = relationship("Service", foreign_keys='Service.category_id', back_populates="main_service_category")
-    sub_services = relationship("Service", foreign_keys='Service.subcategory_id', back_populates="sub_service_category")
+    services = relationship("Service", foreign_keys='Service.category_id',back_populates="service_category")

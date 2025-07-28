@@ -76,6 +76,7 @@ def get_product_list(request: Request,filters:ProductFilters,db: Session = Depen
 @router.get("/product-dropdown")
 def get_product_dropdown(
     request: Request,
+    is_parent:bool = Query(False),
     search: str = Query(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
@@ -83,7 +84,7 @@ def get_product_dropdown(
     lang = get_lang_from_request(request)
 
     try:
-        data = crud_product.get_product_dropdown(db, search, current_user)
+        data = crud_product.get_product_dropdown(db,is_parent,search, current_user)
         return ResponseHandler.success(data=jsonable_encoder(data))
 
     except Exception as e:

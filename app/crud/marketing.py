@@ -32,8 +32,8 @@ def get_all_banners(db: Session, filters: BannerFilters, current_user: User):
         query = query.filter(Banner.is_active == filters.is_active)
 
     # Filter: type
-    if filters.type:
-        query = query.filter(Banner.type == filters.type)
+    if filters.link_type:
+        query = query.filter(Banner.link_type == filters.link_type)
 
     # Filter: search (title or link_text)
     if filters.search:
@@ -254,6 +254,18 @@ def get_combo(db:Session,combo_id:int):
     )
     return combo
 
+def get_combo_dropdown(db:Session,search:str,current_user:User):
+    query = db.query(Combo.id,Combo.name).filter(Combo.business_id == current_user.business_id)
+
+    if search:
+        search = search.lower()
+        query = query.filter(
+            or_(
+                Combo.name.ilike(search)            )
+        )
+    combos = query.order_by(Combo.name.asc()).all()
+    return [{"id": c.id, "name": c.name} for c in combos]
+
 
 # Offers Methods
 def create_offer(db: Session, payload: OfferCreate, current_user: User):
@@ -362,3 +374,15 @@ def get_all_offers(db: Session, filters:OfferFilters, current_user: User):
         "total": total,
         "items": offers
     }
+
+def get_offer_dropdown(db:Session,search:str,current_user:User):
+    query = db.query(Offer.id,Offer.name).filter(Combo.business_id == current_user.business_id)
+
+    if search:
+        search = search.lower()
+        query = query.filter(
+            or_(
+                Offer.name.ilike(search)            )
+        )
+    offers = query.order_by(Offer.name.asc()).all()
+    return [{"id": o.id, "name": o.name} for o in offers]

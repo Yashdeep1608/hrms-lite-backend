@@ -7,6 +7,7 @@ import re
 
 from app.models import Business, BusinessCategory
 from app.models.category import Category
+from app.models.user import User
 from app.schemas.business import BusinessCreate, BusinessUpdate, CategoryCreateUpdate
 
 
@@ -217,13 +218,13 @@ def toggle_category(db: Session, category: Category):
 
 def get_categories_for_dropdown(
     db: Session,
-    business_id: int,
+    current_user:User
 ) -> List[Category]:
     # Step 1: Fetch all categories
     categories = (
         db.query(Category)
         .filter(
-            Category.business_id == business_id,
+            Category.business_id == current_user.business_id,
             Category.is_active == True
         )
         .order_by(Category.name.asc())

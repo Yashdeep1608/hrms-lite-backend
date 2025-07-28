@@ -1,109 +1,86 @@
 # models/product.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, Text, ForeignKey, CheckConstraint,
+    ARRAY, Column, Enum, Integer, String, Text, ForeignKey, CheckConstraint,
     Numeric, Boolean, TIMESTAMP, UniqueConstraint,DateTime
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.db.base import Base
+from app.models.enums import LocationType, ScheduleType
 
 class Service(Base):
     __tablename__ = 'services'
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    business_id = Column(Integer, ForeignKey('businesses.id'), nullable=False)
+
+    # 🔹 Basic Info
+    name = Column(String(100), nullable=False, comment="Service name/title")
+    description = Column(String(2000), nullable=False, comment="Detailed service description")
+    cancellation_policy = Column(String(1000), nullable=True, comment="Cancellation terms for the service")
+    image_url = Column(Text, nullable=True, comment="Single image URL representing the service")
+
+    # 🔹 Business Context
+    business_id = Column(Integer, ForeignKey('businesses.id'), nullable=False, comment="Owning business ID")
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, comment="Creator/admin user ID")
+
+    # 🔹 Category & Parent Mapping
+    parent_service_id = Column(Integer, ForeignKey("services.id"), nullable=True, comment="If this service is tied to a service (optional)")
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
-    subcategory_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
-    description = Column(String(1000), nullable=False)
-    price = Column(Numeric,nullable=False)
-    discount_type = Column(String, nullable=True)  # e.g. "percentage", "flat"
-    discount_value = Column(Numeric, nullable=True)  # e.g. 10 for 10% or 100 for flat $100 off
-    
-    include_tax = Column(Boolean, default=False) # if True, add tax in amount
-    tax_value = Column(Numeric, nullable=True) # if include_tax is True, this is the tax value in %
-    
-    additional_fees = Column(JSONB, nullable=True) # e.g. {"fee_name": "fee_value", ...}
-    # Specifies where the service is provided: onsite (at business), online (virtual), or at the customer's location.
-    location_type = Column(String, nullable=True, comment="Service location type: 'onsite', 'online', or 'customer_location'.")
+    subcategory_path = Column(ARRAY(Integer), nullable=True, comment="Full subcategory path as list of IDs")
 
-    # The maximum number of participants allowed per booking (useful for group services or classes).
-    capacity = Column(Integer, nullable=True, comment="Maximum number of people per booking (group services/classes).")
+    # 🔹 Pricing & Taxation
+    price = Column(Numeric, nullable=False, comment="Base price of the service")
+    discount_type = Column(String(20), nullable=True, comment="'percentage' or 'flat'")
+    discount_value = Column(Numeric, nullable=True)
+    max_discount = Column(Numeric,nullable=True)
+    include_tax = Column(Boolean, default=False, comment="If true, tax is included in price")
+    tax_rate = Column(Numeric, nullable=True, comment="Applicable tax rate in percentage (e.g., 18 for 18%)")
 
-    # Indicates if advance booking is required (True), or if walk-ins are allowed (False).
-    booking_required = Column(Boolean, default=True, comment="True if booking is required; False allows walk-ins.")
+    # 🔹 Service Mode & Capacity
+    location_type = Column(Enum(LocationType), nullable=True, comment="onsite | online | customer_location")
+    capacity = Column(Integer, nullable=True, comment="Maximum number of participants/bookings")
+    booking_required = Column(Boolean, default=True, comment="If true, booking is required")
 
-    # Flexible JSON field for storing additional, business-specific service properties without changing the schema.
-    custom_fields = Column(JSONB, nullable=True, comment="Custom, business-specific fields (flexible JSON).")
-    tags = Column(JSONB, nullable=True) # Searching Tags 
+    duration_minutes = Column(Integer, nullable=True, comment="Total duration of the service in minutes")
 
-    duration_minutes = Column(Integer,nullable = True) # duration of service in minutes Ex- Yoga (60) , Haircut (30)
-    cancellation_policy = Column(String(1000), nullable=True) # Ex- 24 hours prior to service start time
-    
-    is_featured = Column(Boolean, default=False) #For featured services
-    is_active = Column(Boolean,nullable=False)
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc))
+    # 🔹 Schedule & Availability
+    schedule_type = Column(Enum(ScheduleType), nullable=True, comment="time_slot | fixed | duration | subscription | flexible")
 
-    # Explicit relationships
-    main_service_category = relationship("Category", foreign_keys=[category_id], back_populates="main_services")
-    sub_service_category = relationship("Category", foreign_keys=[subcategory_id], back_populates="sub_services")
-    businesses = relationship("Business", back_populates="services")
-    medias = relationship("ServiceMedia",back_populates="services",uselist=False, cascade="all, delete-orphan")
-    schedules = relationship("ServiceSchedule",back_populates="services",uselist=False, cascade="all, delete-orphan")
+    # For 'time_slot'/ 'fixed' schedules
+    days_of_week = Column(JSONB, nullable=True, comment="Days service is available, e.g. ['Monday', 'Wednesday']")
+    start_time = Column(String(10), nullable=True, comment="Start of daily slot availability/Fixed timing (e.g. '10:00')")
+    end_time = Column(String(10), nullable=True, comment="End of daily slot availability/Fixed timing (e.g. '22:00')")
 
-class ServiceSchedule(Base):
-    __tablename__ = "service_schedules"
 
-    id = Column(Integer, primary_key=True, index=True)
-    service_id = Column(Integer, ForeignKey("services.id", ondelete="CASCADE"))
-
-    schedule_type = Column(String, nullable=False)  # "time_slot", "duration", "date_range","fixed","flexible"
-
-    # Used for 'time_slot' like barber or coaching
-    days_of_week = Column(JSONB, nullable=True)  # e.g. ["Monday", "Wednesday"]
-    start_time = Column(String, nullable=True)   # e.g. "17:00"
-    end_time = Column(String, nullable=True)     # e.g. "18:00"
-
-    # Used for 'duration' like "5 days 4 nights"
+    # For subscriptions or duration-based services
     duration_days = Column(Integer, nullable=True)
-    duration_nights = Column(Integer, nullable=True)
+    duration_weeks = Column(Integer, nullable=True)
+    duration_months = Column(Integer, nullable=True)
 
-    # Used for exact schedules (e.g. tour dates)
-    start_date = Column(DateTime(timezone=True), nullable=True)
-    end_date = Column(DateTime(timezone=True), nullable=True)
+    start_date = Column(DateTime(timezone=True), nullable=True, comment="Service start date")
+    end_date = Column(DateTime(timezone=True), nullable=True, comment="Service end date")
 
-    # Number of minutes before the service starts, reserved for setup or preparation.
-    buffer_time_before = Column(Integer, nullable=True, comment="Minutes before service for setup/preparation.")
+    buffer_time_before = Column(Integer, nullable=True, comment="Buffer/setup time before service starts (in minutes)")
+    buffer_time_after = Column(Integer, nullable=True, comment="Buffer/cleanup time after service ends (in minutes)")
+    lead_time = Column(Integer, nullable=True, comment="Minimum advance time required for booking (in minutes)")
 
-    # Number of minutes after the service ends, reserved for cleanup or transition.
-    buffer_time_after = Column(Integer, nullable=True, comment="Minutes after service for cleanup/transition.")
+    recurring = Column(Boolean, default=False, comment="True if schedule is recurring (e.g. weekly yoga)")
 
-    # Minimum number of minutes in advance that a booking must be made.
-    lead_time = Column(Integer, nullable=True, comment="Minimum advance time (in minutes) required for booking.")
+    # 🔹 Tags & Visibility
+    tags = Column(JSONB, nullable=True, comment="Searchable tags for discovery")
+    is_featured = Column(Boolean, default=False, comment="If true, highlights this service on platform")
+    is_online = Column(Boolean, default=False, comment="If true, this service shows on platform")
+    is_active = Column(Boolean, nullable=False, comment="True if service is currently active")
+    is_deleted = Column(Boolean, nullable=False, default=False, comment="Soft delete flag")
 
-    # Indicates whether the service schedule is recurring (e.g., weekly class).
-    recurring = Column(Boolean, default=False, comment="True if the schedule repeats regularly (recurring).")
-
+    # 🔹 Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
 
-    services = relationship("Service", back_populates="schedules")
-
-
-class ServiceMedia(Base):
-    __tablename__ = 'service_medias'
-
-    id = Column(Integer, primary_key=True, index=True)
-    service_id = Column(Integer, ForeignKey('services.id'), nullable=False)
-    media_url = Column(Text, nullable=False)
-    media_type = Column(String,nullable=False)
-    is_primary = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-    services = relationship("Service", back_populates="medias")
+    # 🔹 Relationships
+    businesses = relationship("Business", back_populates="services")
+    service_category = relationship("Category", foreign_keys=[category_id], back_populates="services")
+    created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_service")
+    parent_service = relationship("Service", remote_side=[id], backref="variants")

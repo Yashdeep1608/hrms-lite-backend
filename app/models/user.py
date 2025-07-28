@@ -56,6 +56,7 @@ class User(Base):
     ticket_logs = relationship("TicketActionLog", foreign_keys="[TicketActionLog.actor_id]", back_populates="actor")
     created_coupons = relationship("Coupon",foreign_keys="[Coupon.created_by_user_id]",back_populates="created_by")
     created_product = relationship("Product",foreign_keys="[Product.created_by_user_id]",back_populates="created_by")
+    created_service = relationship("Service",foreign_keys="[Service.created_by_user_id]",back_populates="created_by")
     created_combo = relationship("Combo",foreign_keys="[Combo.created_by_user_id]",back_populates="created_by")
     created_offer = relationship("Offer",foreign_keys="[Offer.created_by_user_id]",back_populates="created_by")
     coupons = relationship("Coupon",foreign_keys="[Coupon.user_id]",back_populates="user")

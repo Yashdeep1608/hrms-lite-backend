@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
@@ -91,6 +91,21 @@ def create_combo(
             error=str(e)
         )
 
+@router.get("/combo/dropdown")
+def get_combo_dropdown(request: Request,search: str=Query(None),db: Session = Depends(get_db),current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+
+    try:
+        data = crud_marketing.get_combo_dropdown(db,search, current_user)
+        return ResponseHandler.success(data=jsonable_encoder(data))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
 @router.put("/combo/{combo_id}")
 def update_combo(
     combo_id: int,
@@ -169,7 +184,8 @@ def get_combo(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
-    
+
+
 #Offer APIs
 @router.post("/offer/create")
 def create_offer(payload: OfferCreate, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -179,6 +195,21 @@ def create_offer(payload: OfferCreate, request: Request, db: Session = Depends(g
         return ResponseHandler.success(message=translator.t("created_successfully", lang), data=offer.id)
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.get("/offer/dropdown")
+def get_offer_dropdown(request: Request,search: str=Query(None),db: Session = Depends(get_db),current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+
+    try:
+        data = crud_marketing.get_offer_dropdown(db,search, current_user)
+        return ResponseHandler.success(data=jsonable_encoder(data))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
 
 @router.post("/offer/list")
 def list_offers(filters: OfferFilters, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -219,4 +250,3 @@ def delete_offer(offer_id: int, request: Request, db: Session = Depends(get_db))
         return ResponseHandler.success(message=translator.t("deleted_successfully", lang))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
-

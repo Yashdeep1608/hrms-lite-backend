@@ -179,10 +179,22 @@ class BannerPosition(str,enum.Enum):
     POPUP = "popup"
     TOP_BAR = "top_bar"
 
-class BannerLinkType(enum.Enum):
+class BannerLinkType(str,enum.Enum):
     PRODUCT = "product"
     SERVICE = "service"
     CATEGORY = "category"
     COMBO = "combo"
     OFFER = "offer"
     EXTERNAL = "external"
+
+class ScheduleType(str, enum.Enum):
+    TIME_SLOT = "time_slot"
+    FIXED = "fixed"
+    DURATION = "duration"
+    SUBSCRIPTION = "subscription"
+    FLEXIBLE = "flexible"
+
+class LocationType(str, enum.Enum):
+    ONSITE = "onsite"
+    ONLINE = "online"
+    CUSTOMER_LOCATION = "customer_location"

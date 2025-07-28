@@ -43,6 +43,24 @@ def register_business(business: BusinessCreate, request: Request,db: Session = D
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("business_registration_failed", lang), error=str(e))
 
+@router.get("/get-category-dropdown")
+def get_category_dropdown(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+    try:
+        
+        all_categories = crud_business.get_categories_for_dropdown(db,current_user)
+
+        return ResponseHandler.success(data=jsonable_encoder(all_categories))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang), error=str(e)
+        )
+
 @router.get("/{business_id}")
 def get_business_by_id(business_id: int, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -92,6 +110,7 @@ def deactivate_business(business_id: int, request: Request, db: Session = Depend
         return ResponseHandler.success(message=translator.t("business_deactivated", lang))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+
 
 @router.get("/get-categories/{business_id}")
 def get_categories(
@@ -174,22 +193,3 @@ def deactivate_category(category_id: int, request: Request, db: Session = Depend
         return ResponseHandler.success(message=translator.t("category_updated", lang))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
-
-@router.get("/get-category-dropdown/{business_id}")
-def get_category_dropdown(
-    business_id: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    lang = get_lang_from_request(request)
-    try:
-        
-        all_categories = crud_business.get_categories_for_dropdown(db,business_id)
-
-        return ResponseHandler.success(data=jsonable_encoder(all_categories))
-
-    except Exception as e:
-        return ResponseHandler.bad_request(
-            message=translator.t("something_went_wrong", lang), error=str(e)
-        )
-

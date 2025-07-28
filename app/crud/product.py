@@ -1,6 +1,6 @@
 from decimal import Decimal
 from slugify import slugify
-from sqlalchemy import any_, or_,func,and_, select
+from sqlalchemy import any_, not_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
 from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
@@ -311,8 +311,6 @@ def get_product_details(db: Session, product_id: int):
 
     return main_product
 
-
-
 def get_product_list(
     db: Session,
     filters: ProductFilters,
@@ -373,13 +371,22 @@ def get_product_list(
 
     return total, items
 
-def get_product_dropdown(db:Session,search:str,current_user:User):
+def get_product_dropdown(db:Session,is_parent:bool,search:str,current_user:User):
     query = db.query(Product).filter(Product.business_id == current_user.business_id)
 
-   # Only Top Level Product
-    query = query.filter(Product.parent_product_id.is_(None))
-
-
+    # Only Top Level Product
+    if is_parent:
+        query = query.filter(Product.parent_product_id.is_(None))
+    else:
+        query = query.filter(
+            not_(
+                and_(
+                    Product.parent_product_id.is_not(None),
+                    Product.is_product_variant.is_(True)
+                )
+            )
+        )
+        
     if search:
         search = search.lower()
         query = query.filter(
