@@ -7,7 +7,6 @@ class OfferConditionCreate(BaseModel):
     operator: Optional[str] = Field(default="equals", pattern="^(equals|in|gte|lte)$")
     value: Union[str, int, float, List[Union[str, int]], dict]
     quantity: Optional[int] = None
-    min_cart_value: Optional[float] = None
 
 class OfferConditionUpdate(OfferConditionCreate):
     id: Optional[int]
@@ -18,13 +17,20 @@ class OfferBase(BaseModel):
     offer_type: str
     reward_type: str
     reward_value: Union[int, float, dict, str]
+    item_type: str
+    item_id: int
+    max_discount: float
+    quantity: int
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     is_active: bool = True
+    available_limit: int = 0
+    usage_limit: int = 0
     auto_apply: bool = False
+    allow_coupon: bool = False
 
 class OfferCreate(OfferBase):
-    conditions: List[OfferConditionCreate]
+    condition: OfferConditionCreate
 
 class OfferUpdate(BaseModel):
     name: Optional[str] = None
@@ -32,11 +38,18 @@ class OfferUpdate(BaseModel):
     offer_type: Optional[str] = None
     reward_type: Optional[str] = None
     reward_value: Optional[Union[int, float, dict, str]] = None
+    item_type: Optional[str] = None
+    item_id: Optional[int] = None
+    max_discount: Optional[float] = None
+    quantity: Optional[int] = None
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     is_active: Optional[bool] = None
+    usage_limit: Optional[int] = None
+    available_limit: Optional[int] = None
     auto_apply: Optional[bool] = None
-    conditions: Optional[List[OfferConditionUpdate]] = None
+    allow_coupon: Optional[bool] = None
+    condition: Optional[OfferConditionUpdate] = None
 
 class OfferFilters(BaseModel):
     search: Optional[str] = Field(None, description="Search by offer name")

@@ -276,7 +276,10 @@ def create_offer(db: Session, payload: OfferCreate, current_user: User):
         is_active=payload.is_active,
         valid_from=payload.start_datetime,
         valid_to=payload.end_datetime,
+        usage_limit=payload.usage_limit,
+        available_limit=payload.available_limit,
         auto_apply=payload.auto_apply,
+        allow_coupon=payload.allow_coupon,
         business_id=current_user.business_id,
         created_by_user_id=current_user.id,
     )
@@ -284,19 +287,23 @@ def create_offer(db: Session, payload: OfferCreate, current_user: User):
     db.add(offer)
     db.flush()  # Get offer.id
 
-    for condition in payload.conditions:
-        db.add(OfferCondition(
-            offer_id=offer.id,
-            condition_type=condition.condition_type,
-            operator=condition.operator,
-            value=condition.value,
-            quantity=condition.quantity,
-        ))
+    db.add(OfferCondition(
+        offer_id=offer.id,
+        condition_type=payload.condition.condition_type,
+        operator=payload.condition.operator,
+        value=payload.condition.value,
+        quantity=payload.condition.quantity,
+    ))
+        
 
     db.add(OfferReward(
         offer_id=offer.id,
         reward_type=payload.reward_type,
-        value=payload.reward_value
+        value=payload.reward_value,
+        item_type = payload.item_type,
+        item_id = payload.item_id,
+        quantity = payload.quantity,
+        max_discount = payload.max_discount
     ))
 
     db.commit()
@@ -307,41 +314,72 @@ def update_offer(db: Session, offer_id: int, payload: OfferUpdate):
     offer = db.query(Offer).filter(Offer.id == offer_id).first()
     if not offer:
         raise Exception("Offer not found")
+
     update_data = payload.model_dump(exclude_unset=True)
-    for attr, value in update_data:
-        if attr in ['start_datetime', 'end_datetime']:
-            setattr(offer, 'valid_from' if attr == 'start_datetime' else 'valid_to', value)
-        elif attr not in ['conditions', 'reward_type', 'reward_value']:
+
+    # ✅ Update basic offer fields
+    for attr, value in update_data.items():
+        if attr == "start_datetime":
+            offer.valid_from = value
+        elif attr == "end_datetime":
+            offer.valid_to = value
+        elif attr == "allow_coupon":
+            offer.allow_coupon = value
+        elif attr not in [
+            "reward_type", "reward_value", "item_type", "item_id",
+            "max_discount", "quantity", "condition"
+        ]:
             setattr(offer, attr, value)
 
-    # Update reward
-    if payload.reward_type or payload.reward_value is not None:
-        reward = offer.rewards[0] if offer.rewards else None
+    # ✅ Update reward if any reward field is present
+    reward_fields = ["reward_type", "reward_value", "item_type", "item_id", "quantity", "max_discount"]
+    if any(field in update_data for field in reward_fields):
+        reward = offer.reward
         if reward:
-            reward.reward_type = payload.reward_type or reward.reward_type
-            reward.value = payload.reward_value or reward.value
+            if "reward_type" in update_data:
+                reward.reward_type = payload.reward_type
+            if "reward_value" in update_data:
+                reward.value = payload.reward_value
+            if "item_type" in update_data:
+                reward.item_type = payload.item_type
+            if "item_id" in update_data:
+                reward.item_id = payload.item_id
+            if "quantity" in update_data:
+                reward.quantity = payload.quantity
+            if "max_discount" in update_data:
+                reward.max_discount = payload.max_discount
         else:
             db.add(OfferReward(
                 offer_id=offer.id,
                 reward_type=payload.reward_type,
-                value=payload.reward_value
+                value=payload.reward_value,
+                item_type=payload.item_type,
+                item_id=payload.item_id,
+                quantity=payload.quantity,
+                max_discount=payload.max_discount,
             ))
 
-    # Update conditions
-    if payload.conditions is not None:
-        db.query(OfferCondition).filter(OfferCondition.offer_id == offer.id).delete()
-        for cond in payload.conditions:
+    # ✅ Update condition if provided
+    if payload.condition is not None:
+        existing = db.query(OfferCondition).filter(OfferCondition.offer_id == offer.id).first()
+        if existing:
+            existing.condition_type = payload.condition.condition_type
+            existing.operator = payload.condition.operator or "equals"
+            existing.value = payload.condition.value
+            existing.quantity = payload.condition.quantity
+        else:
             db.add(OfferCondition(
                 offer_id=offer.id,
-                condition_type=cond.condition_type,
-                operator=cond.operator,
-                value=cond.value,
-                quantity=cond.quantity,
+                condition_type=payload.condition.condition_type,
+                operator=payload.condition.operator or "equals",
+                value=payload.condition.value,
+                quantity=payload.condition.quantity,
             ))
 
     db.commit()
     db.refresh(offer)
     return offer
+
 
 def delete_offer(db: Session, offer_id: int):
     offer = db.query(Offer).filter(Offer.id == offer_id).first()
@@ -350,7 +388,9 @@ def delete_offer(db: Session, offer_id: int):
     return True
 
 def get_offer_by_id(db: Session, offer_id: int):
-    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    offer = db.query(Offer).filter(Offer.id == offer_id).options(
+            joinedload(Offer.condition),         # Load combo items
+        ).first()
     return offer
 
 def get_all_offers(db: Session, filters:OfferFilters, current_user: User):

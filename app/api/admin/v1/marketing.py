@@ -215,7 +215,7 @@ def get_offer_dropdown(request: Request,search: str=Query(None),db: Session = De
 def list_offers(filters: OfferFilters, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        offers = crud_marketing.get_all_offers(db, filters,current_user,lang)
+        offers = crud_marketing.get_all_offers(db, filters,current_user)
         return ResponseHandler.success(data=jsonable_encoder(offers))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))

@@ -19,7 +19,7 @@ class Offer(Base):
 
     # Behavior
     auto_apply = Column(Boolean, default=True)
-    can_stack_with_coupon = Column(Boolean, default=False)
+    allow_coupon = Column(Boolean, default=False)
 
     # Timing & Validity
     valid_from = Column(DateTime(timezone=True))
@@ -35,8 +35,8 @@ class Offer(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     business = relationship("Business", back_populates="offers")
-    conditions = relationship("OfferCondition", back_populates="offer", cascade="all, delete")
-    rewards = relationship("OfferReward", back_populates="offer", cascade="all, delete")
+    condition = relationship("OfferCondition", back_populates="offer", cascade="all, delete")
+    reward = relationship("OfferReward", back_populates="offer", cascade="all, delete")
     created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_offer")
 
 class OfferCondition(Base):
@@ -51,15 +51,13 @@ class OfferCondition(Base):
     value = Column(JSONB, nullable=False)  # depends on type (e.g., product_id list, float value, boolean)
     quantity = Column(Integer, nullable=True)  # For product quantity-based conditions
 
-    offer = relationship("Offer", back_populates="conditions")
+    offer = relationship("Offer", back_populates="condition")
 
 class OfferReward(Base):
     __tablename__ = "offer_rewards"
 
     id = Column(Integer, primary_key=True)
     offer_id = Column(Integer, ForeignKey("offers.id"), nullable=False)
-    offer = relationship("Offer", back_populates="rewards")
-
     reward_type = Column(Enum(OfferRewardType), nullable=False)  # FLAT, PERCENTAGE, FREE_PRODUCT, DISCOUNTED_PRODUCT
     value = Column(Float, nullable=True)  # e.g., 50 for ₹50 flat or 10% discount
 
@@ -67,3 +65,5 @@ class OfferReward(Base):
     item_id = Column(Integer, nullable=True)   # ID of product/service to be given as reward
     quantity = Column(Integer, nullable=True)  # e.g., 1 free item
     max_discount = Column(Float, nullable=True)  # For percentage rewards
+
+    offer = relationship("Offer", back_populates="reward")
