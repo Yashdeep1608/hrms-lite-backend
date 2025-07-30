@@ -137,9 +137,9 @@ class OfferConditionType(str, enum.Enum):
     SERVICE = "service"                 # service_id(s)
     CATEGORY = "category"               # category_id(s)
     CART_TOTAL = "cart_total"           # minimum cart value
-    USER_TAG = "user_tag"               # user has tag X
+    CONTACT_TAG = "contact_tag"         # contact has tag X
     FIRST_ORDER = "first_order"         # only if user has no prior orders
-    CUSTOMER_ID = "customer_id"         # specific user IDs
+    CONTACT_GROUP = "contact_group"     # contact in group
     TIME_WINDOW = "time_window"         # applied only within a time window
     PAYMENT_METHOD = "payment_method"   # COD, Online, Wallet etc.
 
@@ -168,7 +168,6 @@ class OfferType(str, enum.Enum):
     BUNDLE_PRICING = "bundle_pricing"           # Buy combo of A+B for ₹300
     CART_VALUE_BASED = "cart_value_based"       # ₹100 off on cart >= ₹999
     CUSTOMER_BASED = "customer_based"           # For first-time or specific users
-    SERVICE_DISCOUNT = "service_discount"       # Applicable to services
     TIME_LIMITED = "time_limited"               # Flash Sale / Happy Hours
 
 class BannerPosition(str,enum.Enum):

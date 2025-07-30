@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload,aliased
 from app.helpers.utils import apply_operator, parse_date_to_utc_end, parse_date_to_utc_start
 from app.models.contact import BusinessContact, BusinessContactTag, Contact, ContactCustomField, ContactCustomValue, GroupContact, Groups, Tag
 from app.models.enums import RoleTypeEnum
+from app.models.user import User
 from app.schemas.contact import ContactCreate, ContactUpdate, CustomFieldCreate, CustomFieldUpdate, GroupCreate, GroupUpdate
 from uuid import UUID, uuid4
 from sqlalchemy import or_,and_
@@ -248,11 +249,11 @@ def get_contacts_for_dropdown(db: Session,user:dict ,business_id: int, search: s
     role = user.role
     user_id = user.id
 
-    if role == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.EMPLOYEE:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.ADMIN:
         # Admin sees all contacts of the business
         pass
 
@@ -363,11 +364,11 @@ def get_all_contacts(
     role = user.role
     user_id = user.id
 
-    if role == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.EMPLOYEE:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.ADMIN:
         # Admin sees all contacts of the business
         pass
 
@@ -506,11 +507,11 @@ def get_all_contacts_count(
     role = user.role
     user_id = user.id
 
-    if role == RoleTypeEnum.Employee:
+    if role == RoleTypeEnum.EMPLOYEE:
         # Employee sees only their contacts
         query = query.filter(BusinessContact.managed_by_user_id == user_id)
 
-    elif role == RoleTypeEnum.Admin:
+    elif role == RoleTypeEnum.ADMIN:
         # Admin sees all contacts of the business
         pass
 
@@ -681,3 +682,13 @@ def get_contact_tags(db:Session,contact_id:UUID):
         }
         for tag in tags
     ]
+
+def get_group_dropdown(db:Session,current_user:User):
+    query = db.query(Groups.id,Groups.name).filter(Groups.business_id == current_user.business_id)
+    groups = query.order_by(Groups.name.asc()).all()
+    return [{"id": o.id, "name": o.name} for o in groups]
+
+def get_tag_dropdown(db:Session,current_user:User):
+    query = db.query(Tag.id,Tag.name).filter(Tag.business_id == current_user.business_id)
+    tags = query.order_by(Tag.name.asc()).all()
+    return [{"id": o.id, "name": o.name} for o in tags]

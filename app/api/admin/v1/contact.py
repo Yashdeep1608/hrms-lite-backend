@@ -193,6 +193,8 @@ def get_contact_tags(contact_id: UUID,request: Request, db: Session = Depends(ge
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
+
+
 # Create Custom Field
 @router.post("/custom-field/create-field/{business_id}", response_model=dict)
 def create_field(business_id: int, field: CustomFieldCreate, request: Request, db: Session = Depends(get_db)):
@@ -209,14 +211,11 @@ def create_field(business_id: int, field: CustomFieldCreate, request: Request, d
             error=str(e)
         )
 
-# List Custom Fields
 @router.get("/custom-field/get-fields/{business_id}", response_model=dict)
 def list_fields(business_id: int, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
         data = crud_contact.get_fields(db, business_id)
-        if not data or len(data) == 0:
-            return ResponseHandler.not_found(message=translator.t("no_fields_found", lang))
         return ResponseHandler.success(
             message=translator.t("custom_fields_fetched", lang),
             data=[{
@@ -233,14 +232,11 @@ def list_fields(business_id: int, request: Request, db: Session = Depends(get_db
             error=str(e)
         )
 
-# Update Custom Field
 @router.put("/custom-field/update-field/{field_id}", response_model=dict)
 def update_field(field_id: UUID, data: CustomFieldUpdate, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
         field = crud_contact.update_field(db, field_id, data)
-        if not field:
-            raise ResponseHandler.not_found(message=translator.t("field_not_found", lang))
         return ResponseHandler.success(
             message=translator.t("custom_field_updated", lang),
             data={"id": str(field.id)}
@@ -251,7 +247,6 @@ def update_field(field_id: UUID, data: CustomFieldUpdate, request: Request, db: 
             error=str(e)
         )
 
-# Delete Custom Field
 @router.delete("/custom-field/delete-field/{field_id}", response_model=dict)
 def delete_field_api(field_id: UUID, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -284,7 +279,6 @@ def create_tag(business_id: int, payload: TagCreate, request: Request, db: Sessi
             error=str(e)
         )
 
-# List Tags for a Business
 @router.get("/tags/get-tags/{business_id}", response_model=dict)
 def list_tags(business_id: int, request: Request, search: str = None,page: int = 1,page_size: int = 20,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -314,7 +308,6 @@ def list_tags(business_id: int, request: Request, search: str = None,page: int =
             error=str(e)
         )
 
-# Update Tag
 @router.put("/tags/update-tag/{tag_id}", response_model=dict)
 def edit_tag(tag_id: UUID, data: TagUpdate, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -334,7 +327,6 @@ def edit_tag(tag_id: UUID, data: TagUpdate, request: Request, db: Session = Depe
             error=str(e)
         )
 
-# Delete Tag
 @router.delete("/tags/delete-tag/{tag_id}", response_model=dict)
 def delete_tag_api(tag_id: UUID, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -353,6 +345,21 @@ def delete_tag_api(tag_id: UUID, request: Request, db: Session = Depends(get_db)
             error=str(e)
         )
     
+@router.get("/tags/tag-dropdown")
+def get_tag_dropdown(request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        tags = crud_contact.get_tag_dropdown(db,current_user)
+        return ResponseHandler.success(
+            data=jsonable_encoder(tags)
+        )
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+    
+# Groups
 @router.post("/groups/create-group/{business_id}", response_model=GroupOut)
 def create_group_api(business_id: int, payload: GroupCreate, request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     lang = get_lang_from_request(request)
@@ -361,7 +368,6 @@ def create_group_api(business_id: int, payload: GroupCreate, request: Request, d
         return ResponseHandler.success(message=translator.t("group_created", lang), data=str(group.id))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
 
 @router.get("/groups/get-groups/{business_id}", response_model=dict)
 def list_groups_api(business_id: int, request: Request, search: str = None, page: int = 1, page_size: int = 20, db: Session = Depends(get_db)):
@@ -390,7 +396,6 @@ def list_groups_api(business_id: int, request: Request, search: str = None, page
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
-
 @router.put("/groups/update-group/{group_id}", response_model=GroupOut)
 def update_group_api(group_id: UUID, payload: GroupUpdate, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -401,7 +406,6 @@ def update_group_api(group_id: UUID, payload: GroupUpdate, request: Request, db:
         return ResponseHandler.success(message=translator.t("group_updated", lang), data=str(group.id))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
 
 @router.delete("/groups/delete-group/{group_id}", response_model=dict)
 def delete_group_api(group_id: UUID, request: Request, db: Session = Depends(get_db)):
@@ -426,5 +430,17 @@ def list_groups_api(group_id: UUID, request: Request,db: Session = Depends(get_d
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
-
+@router.get("/groups/group-dropdown")
+def get_group_dropdown(request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        tags = crud_contact.get_group_dropdown(db,current_user)
+        return ResponseHandler.success(
+            data=jsonable_encoder(tags)
+        )
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
     

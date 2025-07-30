@@ -108,7 +108,7 @@ def get_service_list(
     if filters.is_online is not None:
         query = query.filter(Service.is_online == filters.is_online)
     # Featured filter
-    if filters.is_active is not None:
+    if filters.is_featured is not None:
         query = query.filter(Service.is_featured == filters.is_featured)
 
     # Category/Subcategory filter

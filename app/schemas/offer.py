@@ -21,8 +21,8 @@ class OfferBase(BaseModel):
     item_id: int
     max_discount: float
     quantity: int
-    start_datetime: Optional[datetime] = None
-    end_datetime: Optional[datetime] = None
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
     is_active: bool = True
     available_limit: int = 0
     usage_limit: int = 0
@@ -42,8 +42,8 @@ class OfferUpdate(BaseModel):
     item_id: Optional[int] = None
     max_discount: Optional[float] = None
     quantity: Optional[int] = None
-    start_datetime: Optional[datetime] = None
-    end_datetime: Optional[datetime] = None
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
     is_active: Optional[bool] = None
     usage_limit: Optional[int] = None
     available_limit: Optional[int] = None

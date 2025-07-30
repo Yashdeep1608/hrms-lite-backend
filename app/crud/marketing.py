@@ -274,8 +274,8 @@ def create_offer(db: Session, payload: OfferCreate, current_user: User):
         description=payload.description,
         offer_type=payload.offer_type,
         is_active=payload.is_active,
-        valid_from=payload.start_datetime,
-        valid_to=payload.end_datetime,
+        valid_from=payload.valid_from,
+        valid_to=payload.valid_to,
         usage_limit=payload.usage_limit,
         available_limit=payload.available_limit,
         auto_apply=payload.auto_apply,
@@ -319,9 +319,9 @@ def update_offer(db: Session, offer_id: int, payload: OfferUpdate):
 
     # ✅ Update basic offer fields
     for attr, value in update_data.items():
-        if attr == "start_datetime":
+        if attr == "valid_from":
             offer.valid_from = value
-        elif attr == "end_datetime":
+        elif attr == "valid_to":
             offer.valid_to = value
         elif attr == "allow_coupon":
             offer.allow_coupon = value
@@ -380,7 +380,6 @@ def update_offer(db: Session, offer_id: int, payload: OfferUpdate):
     db.refresh(offer)
     return offer
 
-
 def delete_offer(db: Session, offer_id: int):
     offer = db.query(Offer).filter(Offer.id == offer_id).first()
     db.delete(offer)
@@ -388,9 +387,15 @@ def delete_offer(db: Session, offer_id: int):
     return True
 
 def get_offer_by_id(db: Session, offer_id: int):
-    offer = db.query(Offer).filter(Offer.id == offer_id).options(
-            joinedload(Offer.condition),         # Load combo items
-        ).first()
+    offer = (
+        db.query(Offer)
+        .filter(Offer.id == offer_id)
+        .options(
+            joinedload(Offer.condition),
+            joinedload(Offer.reward)
+        )
+        .first()
+    )
     return offer
 
 def get_all_offers(db: Session, filters:OfferFilters, current_user: User):
@@ -401,9 +406,9 @@ def get_all_offers(db: Session, filters:OfferFilters, current_user: User):
     if filters.search:
         query = query.filter(Offer.name.ilike(f"%{filters.search}%"))
     if filters.from_date:
-        query = query.filter(Offer.valid_from >= filters.from_date)
+        query = query.filter(Offer.created_at >= filters.from_date)
     if filters.to_date:
-        query = query.filter(Offer.valid_to <= filters.to_date)
+        query = query.filter(Offer.created_at <= filters.to_date)
 
     total = query.count()
     offers = query.order_by(

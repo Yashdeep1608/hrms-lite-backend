@@ -18,7 +18,7 @@ class ServiceBase(BaseModel):
 
     # Pricing & Taxation
     price: Decimal
-    discount_type: Optional[Literal["percentage", "flat"]] = None
+    discount_type: Optional[str] = None
     discount_value: Optional[Decimal] = None
     max_discount: Optional[Decimal] = None
     include_tax: Optional[bool] = False
@@ -69,7 +69,7 @@ class ServiceUpdate(BaseModel):
     subcategory_path: Optional[List[int]] = None
     parent_service_id: Optional[int] = None
     price: Optional[Decimal] = None
-    discount_type: Optional[Literal["percentage", "flat"]] = None
+    discount_type: Optional[str] = None
     discount_value: Optional[Decimal] = None
     max_discount: Optional[Decimal] = None
     include_tax: Optional[bool] = None
