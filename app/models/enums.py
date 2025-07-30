@@ -197,3 +197,33 @@ class LocationType(str, enum.Enum):
     ONSITE = "onsite"
     ONLINE = "online"
     CUSTOMER_LOCATION = "customer_location"
+
+class CartOrderSource(str, enum.Enum):
+    WEB = "web"
+    BACK_OFFICE = "back_office"
+
+class CartOrderStatus(str,enum.Enum):
+    PENDING = "pending"
+    PLACED = "placed"
+    CONFIRMED = "confirmed"
+    PROCESSING = "processing"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+
+class OrderPaymentMode(str,enum.Enum):
+    OFFLINE = "offline"
+    ONLINE = "online"
+
+class OrderPaymentMethod(str,enum.Enum):
+    UPI = "upi"
+    CARD = "card"
+    NETBANKING = "netbanking"
+    WALLET = "wallet"
+    CASH = "cash"
+class OrderPaymentStatus(enum.Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
+    REFUNDED = "refunded"

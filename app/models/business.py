@@ -41,3 +41,5 @@ class Business(Base):
     combos = relationship("Combo", back_populates="business")
     offers = relationship("Offer", back_populates="business")
     banners = relationship("Banner", back_populates="business", cascade="all, delete-orphan")
+    carts = relationship("Cart", back_populates="business", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="business")

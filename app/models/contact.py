@@ -55,6 +55,8 @@ class BusinessContact(Base):
 
     contact = relationship("Contact", back_populates="business_contacts")
     custom_values = relationship("ContactCustomValue", back_populates="business_contact", cascade="all, delete")
+    carts = relationship("Cart", back_populates="business_contact", cascade="all, delete")
+    orders = relationship("Order", back_populates="business_contact")
     tag_links = relationship("BusinessContactTag", back_populates="business_contact", cascade="all, delete")
     group_links = relationship("GroupContact", back_populates="business_contact", cascade="all, delete")
     sponsor = relationship("BusinessContact", remote_side=[id], backref="downlines")

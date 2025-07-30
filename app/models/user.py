@@ -61,6 +61,11 @@ class User(Base):
     created_offer = relationship("Offer",foreign_keys="[Offer.created_by_user_id]",back_populates="created_by")
     coupons = relationship("Coupon",foreign_keys="[Coupon.user_id]",back_populates="user")
     created_banners = relationship("Banner", back_populates="created_by", cascade="all, delete-orphan")
+    created_carts = relationship("Cart", back_populates="created_by", cascade="all, delete-orphan")
+    created_orders = relationship("Order", back_populates="created_by")
+    order_status_changes = relationship("OrderStatusLog", back_populates="changed_by")
+    initiated_order_actions = relationship("OrderActionLog", back_populates="initiated_by", foreign_keys="[OrderActionLog.initiated_by_user_id]")
+    approved_order_actions = relationship("OrderActionLog", back_populates="approved_by", foreign_keys="[OrderActionLog.approved_by_user_id]")
 
 class UserPayment(Base):
     __tablename__ = "user_payments"
