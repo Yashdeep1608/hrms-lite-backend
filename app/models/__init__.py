@@ -22,4 +22,6 @@ from .offer import *
 from .banner import *
 from .combo import *
 from .enums import *
+from .order import *
+from .cart import *
 # add all your models here for easy import elsewhere

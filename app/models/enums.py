@@ -198,6 +198,11 @@ class LocationType(str, enum.Enum):
     ONLINE = "online"
     CUSTOMER_LOCATION = "customer_location"
 
+class CartStatus(str, enum.Enum):
+    ACTIVE = "active"         # Cart is currently active (open for additions)
+    COMPLETED = "completed"  # Cart has been converted to an order
+    ABANDONED = "abandoned"   # Cart was abandoned by user (optional)
+    CANCELLED = "cancelled"   # Cart was explicitly cancelled (optional)
 class CartOrderSource(str, enum.Enum):
     WEB = "web"
     BACK_OFFICE = "back_office"

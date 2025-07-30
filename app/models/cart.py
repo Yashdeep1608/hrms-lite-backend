@@ -1,8 +1,8 @@
-from sqlalchemy import UUID, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import ARRAY, UUID, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base import Base
-from app.models.enums import CartOrderSource
+from app.models.enums import CartOrderSource, CartStatus
 
 class Cart(Base):
     __tablename__ = "carts"
@@ -12,8 +12,15 @@ class Cart(Base):
     business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=False,index=True)
     anonymous_id = Column(String, nullable=True)
     source = Column(Enum(CartOrderSource), nullable=False,index=True)
+    cart_status = Column(Enum(CartStatus), nullable=False, default=CartStatus.ACTIVE, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=True)
+    coupon_discount = Column(Numeric(10, 2), default=0)
+
+    offer_id = Column(Integer, ForeignKey("offers.id"), nullable=True)
+    offer_discount = Column(Numeric(10, 2), default=0)  # optional, total offer-based discount
+    
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -21,6 +28,8 @@ class Cart(Base):
     business_contact = relationship("BusinessContact", back_populates="carts")
     items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
     created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_carts")
+    coupon = relationship("Coupon", foreign_keys=[coupon_id])
+    coupon = relationship("Offer", foreign_keys=[offer_id])
 
 class CartItem(Base):
     __tablename__ = "cart_items"
@@ -42,6 +51,11 @@ class CartItem(Base):
     start_date = Column(Date, nullable=True)
     day = Column(String, nullable=True)
 
+    applied_offer_id = Column(Integer, ForeignKey("offers.id"), nullable=True)
+    applied_coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=True)  # If you apply coupon to individual items
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     cart = relationship("Cart", back_populates="items")
+    applied_offer = relationship("Offer", foreign_keys=[applied_offer_id])
+    applied_coupon = relationship("Coupon", foreign_keys=[applied_coupon_id])

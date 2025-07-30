@@ -1,8 +1,8 @@
 # models/product.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    ARRAY, Column, Enum, Integer, String, Text, ForeignKey, CheckConstraint,
-    Numeric, Boolean, TIMESTAMP, UniqueConstraint,DateTime
+    ARRAY, Column, Enum, Integer, String, Text, ForeignKey,
+    Numeric, Boolean,DateTime
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship

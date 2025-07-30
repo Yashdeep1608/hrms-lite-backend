@@ -132,7 +132,6 @@ def get_coupons(db: Session, filters: CouponFilters,current_user:User) -> List[d
         'items': [dict(row._mapping) for row in results]
     }
     
-
 def get_coupon_details(db, coupon_id: int):
     coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
     if not coupon:
