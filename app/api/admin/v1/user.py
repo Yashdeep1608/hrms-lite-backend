@@ -45,7 +45,7 @@ def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
         crud_user.soft_delete_user(db, user)
         return ResponseHandler.success(message=translator.t("user_deleted", lang))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.put("/{user_id}")
 def update_user(user_id: int, data: UserUpdate, request: Request, db: Session = Depends(get_db)):
@@ -59,7 +59,7 @@ def update_user(user_id: int, data: UserUpdate, request: Request, db: Session = 
        return ResponseHandler.success(data=UserOut.model_validate(updated_user).model_dump(mode="json"),
                                       message=translator.t("user_updated", lang))
    except Exception as  e:
-       return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+       return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.post("/upload")
 def upload_image(request:Request,file: UploadFile = File(...)):
@@ -68,7 +68,7 @@ def upload_image(request:Request,file: UploadFile = File(...)):
         file_url = upload_file_to_s3(file)
         return ResponseHandler.success(data={"url": file_url})
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
     
 @router.post("/change-password")
 def change_password(
@@ -82,7 +82,7 @@ def change_password(
         return ResponseHandler.success(data=UserOut.model_validate(updated_user).model_dump(mode="json"),
                                       message=translator.t("password_changed", lang))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.get("/get-platform-users")
 def get_platform_users(request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
@@ -91,7 +91,7 @@ def get_platform_users(request: Request, db: Session = Depends(get_db),current_u
         users = crud_user.get_platform_user_list(db,current_user)
         return ResponseHandler.success(data=jsonable_encoder(users))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
     
 @router.post("/create-downline-user")
 def create_downline_user(
@@ -126,4 +126,4 @@ def create_downline_user(
             data=jsonable_encoder(new_user)
         )
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

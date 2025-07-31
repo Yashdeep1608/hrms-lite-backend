@@ -117,7 +117,7 @@ class UserOrder(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="orders")
-    business = relationship("Business", back_populates="orders")
+    business = relationship("Business", back_populates="user_orders")
 
 class UserPlan(Base):
     __tablename__ = "user_plans"

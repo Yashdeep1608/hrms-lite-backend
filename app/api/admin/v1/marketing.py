@@ -27,7 +27,7 @@ def create_banner(banner_in: BannerCreate, request: Request, db: Session = Depen
         banner = crud_marketing.create_banner(db, banner_in,current_user)
         return ResponseHandler.success(message=translator.t("created_successfully", lang), data=banner.id)
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.post("/banner/list")
 def list_banners(filters: BannerFilters, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -36,7 +36,7 @@ def list_banners(filters: BannerFilters, request: Request, db: Session = Depends
         banners = crud_marketing.get_all_banners(db, filters,current_user)
         return ResponseHandler.success(data=jsonable_encoder(banners))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.get("/banner/{banner_id}")
 def get_banner(banner_id: int, request: Request, db: Session = Depends(get_db)):
@@ -45,7 +45,7 @@ def get_banner(banner_id: int, request: Request, db: Session = Depends(get_db)):
         banner = crud_marketing.get_banner(db, banner_id)
         return ResponseHandler.success(data=jsonable_encoder(banner))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.put("/banner/{banner_id}")
 def update_banner(banner_id: int, banner_in: BannerUpdate, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -56,7 +56,7 @@ def update_banner(banner_id: int, banner_in: BannerUpdate, request: Request, db:
             return ResponseHandler.not_found(message=translator.t("banner_not_found", lang))
         return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(updated))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.delete("/banner/{banner_id}")
 def delete_banner(banner_id: int, request: Request, db: Session = Depends(get_db)):
@@ -67,7 +67,7 @@ def delete_banner(banner_id: int, request: Request, db: Session = Depends(get_db
             return ResponseHandler.not_found(message=translator.t("banner_not_found", lang))
         return ResponseHandler.success(message=translator.t("deleted_successfully", lang))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 
 #Combo APIs
@@ -194,7 +194,7 @@ def create_offer(payload: OfferCreate, request: Request, db: Session = Depends(g
         offer = crud_marketing.create_offer(db, payload,current_user)
         return ResponseHandler.success(message=translator.t("created_successfully", lang), data=offer.id)
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.get("/offer/dropdown")
 def get_offer_dropdown(request: Request,search: str=Query(None),db: Session = Depends(get_db),current_user = Depends(get_current_user)
@@ -218,7 +218,7 @@ def list_offers(filters: OfferFilters, request: Request, db: Session = Depends(g
         offers = crud_marketing.get_all_offers(db, filters,current_user)
         return ResponseHandler.success(data=jsonable_encoder(offers))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.get("/offer/{offer_id}")
 def get_offer(offer_id: int, request: Request, db: Session = Depends(get_db)):
@@ -227,7 +227,7 @@ def get_offer(offer_id: int, request: Request, db: Session = Depends(get_db)):
         offer = crud_marketing.get_offer_by_id(db, offer_id)
         return ResponseHandler.success(data=jsonable_encoder(offer))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.put("/offer/{offer_id}")
 def update_offer(offer_id: int, payload: OfferUpdate, request: Request, db: Session = Depends(get_db)):
@@ -238,7 +238,7 @@ def update_offer(offer_id: int, payload: OfferUpdate, request: Request, db: Sess
             return ResponseHandler.not_found(message=translator.t("offer_not_found", lang))
         return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(updated))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.delete("/offer/{offer_id}")
 def delete_offer(offer_id: int, request: Request, db: Session = Depends(get_db)):
@@ -249,4 +249,4 @@ def delete_offer(offer_id: int, request: Request, db: Session = Depends(get_db))
             return ResponseHandler.not_found(message=translator.t("offer_not_found", lang))
         return ResponseHandler.success(message=translator.t("deleted_successfully", lang))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

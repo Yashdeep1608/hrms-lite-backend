@@ -29,6 +29,10 @@ def create_contact(payload:ContactCreate,request:Request,db:Session = Depends(ge
             message=translator.t("contact_created",lang),
             data=str(contact.id)
         )
+    except ValueError as ve:
+        return ResponseHandler.bad_request(
+            message=str(ve),  # Or translator.t("contact_already_exists", lang)
+        )
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
     

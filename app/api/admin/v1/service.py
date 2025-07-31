@@ -49,7 +49,7 @@ def get_service_details(service_id: int,request:Request, db: Session = Depends(g
             raise ResponseHandler.not_found(message=translator.t("service_not_found", lang))
         return ResponseHandler.success(data=jsonable_encoder(service))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
 
 @router.post("/get-service-list")
 def get_service_list(filters: ServiceFilter,request: Request,db: Session = Depends(get_db),current_user=Depends(get_current_user)):

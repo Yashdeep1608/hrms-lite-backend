@@ -140,7 +140,7 @@ def get_group_data(db:Session,group_id: UUID):
 
 def create_contact(db: Session, user_id: int, business_id: int, contact_data: ContactCreate):
     try:
-        # 1. Try to find existing contact by phone + isd + country
+        # 1. Check for existing contact
         existing_contact = db.query(Contact).filter_by(
             phone_number=contact_data.phone_number,
             isd_code=contact_data.isd_code,
@@ -148,7 +148,7 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
         ).first()
 
         if existing_contact:
-            # 2. Update certain fields only if different
+            # Update basic fields if needed
             updated = False
             if contact_data.email and contact_data.email != existing_contact.email:
                 existing_contact.email = contact_data.email
@@ -159,14 +159,13 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
             if contact_data.preferred_language and contact_data.preferred_language != existing_contact.preferred_language:
                 existing_contact.preferred_language = contact_data.preferred_language
                 updated = True
-
             if updated:
                 db.commit()
                 db.refresh(existing_contact)
 
             contact = existing_contact
         else:
-            # 3. Create new contact
+            # Create new contact
             contact = Contact(
                 phone_number=contact_data.phone_number,
                 email=contact_data.email,
@@ -179,7 +178,16 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
             db.commit()
             db.refresh(contact)
 
-        # 4. Create BusinessContact
+        # 2. Check if BusinessContact already exists
+        existing_business_contact = db.query(BusinessContact).filter_by(
+            business_id=business_id,
+            contact_id=contact.id
+        ).first()
+
+        if existing_business_contact:
+            raise ValueError("Contact already present")
+
+        # 3. Create new BusinessContact
         business_contact = BusinessContact(
             business_id=business_id,
             contact_id=contact.id,
@@ -195,8 +203,8 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
         db.commit()
         db.refresh(business_contact)
 
-        # 5. Add custom field values if present
-        if contact_data.custom_fields and len(contact_data.custom_fields) > 0:
+        # 4. Add custom fields if any
+        if contact_data.custom_fields:
             for cf in contact_data.custom_fields:
                 value = ContactCustomValue(
                     business_contact_id=business_contact.id,
@@ -210,7 +218,7 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
 
     except SQLAlchemyError as e:
         db.rollback()
-        raise e  # Optionally: raise HTTPException(500, detail="Contact creation failed")
+        raise e
 
 def delete_business_contact(db: Session, business_contact_id: str):
     bc = db.query(BusinessContact).filter_by(id=business_contact_id).first()

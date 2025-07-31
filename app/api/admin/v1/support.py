@@ -37,7 +37,7 @@ def create_ticket(
         ticket = crud_support.create_user_ticket(db=db, user=current_user, payload=payload)
         return ResponseHandler.success(message=translator.t("ticket_created", lang), data=jsonable_encoder(ticket.id))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 # ------------------------
 # User: List own tickets
@@ -58,7 +58,7 @@ def list_user_tickets(
         )
         return ResponseHandler.success(data=jsonable_encoder(tickets))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 # ------------------------
 # User: Get ticket thread
@@ -75,7 +75,7 @@ def get_ticket_thread(
         ticket = crud_support.get_ticket_thread(db,ticket_id,current_user)
         return ResponseHandler.success(data=jsonable_encoder(ticket))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 # ------------------------
 # User: Add reply message
@@ -93,7 +93,7 @@ def add_ticket_message(
         message  = crud_support.add_ticket_message(db,ticket_id,current_user,payload)
         return ResponseHandler.success(data=jsonable_encoder(message))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang), error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 #------------------------------
 # Get all tickets 

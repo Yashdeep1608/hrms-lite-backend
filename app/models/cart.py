@@ -1,4 +1,4 @@
-from sqlalchemy import ARRAY, UUID, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import ARRAY, UUID, Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base import Base
@@ -17,6 +17,7 @@ class Cart(Base):
 
     coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=True)
     coupon_discount = Column(Numeric(10, 2), default=0)
+    coupon_removed = Column(Boolean,default=False)
 
     offer_id = Column(Integer, ForeignKey("offers.id"), nullable=True)
     offer_discount = Column(Numeric(10, 2), default=0)  # optional, total offer-based discount
@@ -43,6 +44,7 @@ class CartItem(Base):
     actual_price = Column(Numeric(10, 2), nullable=False)
     final_price = Column(Numeric(10, 2), nullable=False)
     discount_price = Column(Numeric(10, 2), nullable=False)
+    tax_amount = Column(Numeric(10, 2), nullable=True)
 
     quantity = Column(Integer, default=1)
 

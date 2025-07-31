@@ -16,19 +16,6 @@ from app.schemas.cart import AddToCart
 from sqlalchemy import and_
 
 def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
-    """
-    Calculate actual_price, discount_price, final_price for the cart item based on item_type.
-
-    Args:
-        item: SQLAlchemy ORM object for product, service, or combo with pricing and discount info.
-        quantity: quantity of the item in cart
-        item_type: one of "product", "service", "combo"
-
-    Returns:
-        Tuple(Decimal actual_price, Decimal discount_price, Decimal final_price)
-    """
-
-    # Normalize quantity
     quantity = max(quantity, 1)
 
     # Helper function to calculate prices given base price and discount info
@@ -64,8 +51,7 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
 
         final_unit_price = price_after_discount + tax_amount
 
-        return base_price, discount_amount, final_unit_price
-
+        return base_price, discount_amount, tax_amount, final_unit_price
     if item_type == "product":
         # Product fields expected:
         # selling_price, discount_type, discount_value, max_discount, include_tax, tax_rate
@@ -76,7 +62,7 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         include_tax = getattr(item, "include_tax", False)
         tax_rate = getattr(item, "tax_rate", None)
 
-        actual_price, discount_price, final_price = _calc_prices(
+        actual_price, discount_price, tax_amount, final_price = _calc_prices(
             selling_price, discount_type, discount_value, max_discount, include_tax, tax_rate
         )
 
@@ -90,7 +76,7 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         include_tax = getattr(item, "include_tax", False)
         tax_rate = getattr(item, "tax_rate", None)
 
-        actual_price, discount_price, final_price = _calc_prices(
+        actual_price, discount_price, tax_amount, final_price = _calc_prices(
             base_price, discount_type, discount_value, max_discount, include_tax, tax_rate
         )
 
@@ -104,7 +90,7 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         max_discount = getattr(item, "max_discount", None)
 
         # Tax fields are missing/not defined for combos; assuming no tax
-        actual_price, discount_price, final_price = _calc_prices(
+        actual_price, discount_price, tax_amount, final_price = _calc_prices(
             combo_price, discount_type, discount_value, max_discount, include_tax=False, tax_rate=None
         )
 
@@ -114,10 +100,10 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
     # Multiply all prices by quantity
     actual_price_total = (actual_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     discount_price_total = (discount_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    tax_amount_total  = (tax_amount  * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     final_price_total = (final_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    return actual_price_total, discount_price_total, final_price_total
-
+    return actual_price_total, discount_price_total, tax_amount_total, final_price_total
 
 def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
     def get_or_create_cart():
@@ -172,7 +158,7 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
         else:
             quantity = 1  # Only 1 allowed for service/combo
 
-        actual_price, discount_price, final_price = calculate_cart_prices(item, quantity, item_type=item_type)
+        actual_price, discount_price, tax_amount, final_price = calculate_cart_prices(item, quantity, item_type=item_type)
 
         cart_item = CartItem(
             cart_id=cart.id,
@@ -182,6 +168,7 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
             name=item.name,
             actual_price=actual_price,
             discount_price=discount_price,
+            tax_amount = tax_amount,
             final_price=final_price,
             time_slot=payload.time_slot or None,
             start_date=payload.start_date or None,
@@ -236,12 +223,13 @@ def update_cart_item(db: Session, cart_item_id: int, quantity: int):
             raise ValueError("Requested quantity exceeds available stock")
 
     # Always re-calculate prices
-    actual_price, discount_price, final_price = calculate_cart_prices(item, quantity, item_type=cart_item.item_type)
+    actual_price, discount_price, tax_amount,final_price = calculate_cart_prices(item, quantity, item_type=cart_item.item_type)
 
     # Update cart item
     cart_item.quantity = quantity
     cart_item.actual_price = actual_price
     cart_item.discount_price = discount_price
+    cart_item.tax_amount = tax_amount
     cart_item.final_price = final_price
 
     db.commit()
@@ -266,26 +254,28 @@ def delete_cart(db:Session, cart_id):
     return True
 
 def get_cart(db: Session,business_id:int,business_contact_id:UUID = None,anonymous_id:UUID = None,user_id:int = None):
-    filters = []
+    filters = [Cart.cart_status == CartStatus.ACTIVE, Cart.business_id == business_id]
     if user_id:
         filters.append(Cart.created_by_user_id == user_id)
     if business_contact_id:
         filters.append(Cart.business_contact_id == business_contact_id)
     if anonymous_id:
         filters.append(Cart.anonymous_id == anonymous_id)
-    filters.append(Cart.cart_status == CartStatus.ACTIVE)
-    filters.append(Cart.business_id == business_id)
 
     cart = db.query(Cart).filter(*filters).first()
+    if not cart:
+        return None
+
     cart_items = db.query(CartItem).filter(CartItem.cart_id == cart.id).all()
-    if cart.coupon_id is None:
+
+    if cart.business_contact_id and cart.coupon_id is None and not cart.coupon_removed:
         total_cart_value = sum(item.final_price * item.quantity for item in cart_items)
         coupon = db.query(Coupon).filter(
-            Coupon.is_auto_applied == True, 
+            Coupon.is_auto_applied == True,
             Coupon.business_id == business_id,
             Coupon.min_cart_value <= total_cart_value,
             Coupon.is_active == True
-            ).order_by(Coupon.created_at.desc).first()
+        ).order_by(Coupon.created_at.desc).first()
         if coupon:
             try:
                 result = apply_coupon(db, cart, coupon.code)
@@ -295,17 +285,11 @@ def get_cart(db: Session,business_id:int,business_contact_id:UUID = None,anonymo
                     db.commit()
                     db.refresh(cart)
             except ValueError:
-                pass # Don't break flow
+                pass
     # elif cart.offer_id is None and cart.coupon_id is None and cart.business_contact_id:
     #     result = apply_offer(db,cart,is_auto_apply=True)
-    #     if result.get("success"):
-    #         cart.offer_id = result["offer_id"]
-    #         cart.offer_discount = result["discount"]
-    #         db.commit()
-    #         db.refresh(cart)
-    
     return cart
-
+    
 def apply_coupon(db: Session, cart: Cart, coupon_code: str = None):    
     # Fetch cart items
     cart_items = db.query(CartItem).filter(CartItem.cart_id == cart.id).all()
@@ -390,7 +374,7 @@ def remove_coupon(db: Session, cart: Cart):
     # Reset coupon_id on cart
     cart.coupon_id = None
     cart.coupon_discount = 0
-
+    cart.coupon_removed = True
     # Reset applied_coupon_id on cart items
     db.query(CartItem).filter(
         CartItem.cart_id == cart.id,

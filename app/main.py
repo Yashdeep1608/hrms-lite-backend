@@ -47,7 +47,7 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
     if exc.status_code == 401:
         # You can customize the message or use localization here
         return ResponseHandler.unauthorized(message=translator.t("unauthorized",lang))
-    return ResponseHandler.bad_request(
+    return ResponseHandler.internal_error(
         message=translator.t("something_went_wrong",lang),
         data={"detail": exc.detail},
     )

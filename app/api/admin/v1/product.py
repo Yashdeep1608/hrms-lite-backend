@@ -60,7 +60,7 @@ def get_product_details(product_id: int,request:Request, db: Session = Depends(g
             raise ResponseHandler.not_found(message=translator.t("product_not_found", lang))
         return ResponseHandler.success(data=jsonable_encoder(product))
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
 
 @router.post("/get-product-list")
 def get_product_list(request: Request,filters:ProductFilters,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -71,7 +71,7 @@ def get_product_list(request: Request,filters:ProductFilters,db: Session = Depen
         #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
         return ResponseHandler.success(data={"total":total, "items": jsonable_encoder(items)})
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("something_went_wrong", lang),error=str(e))
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
 
 @router.get("/product-dropdown")
 def get_product_dropdown(
