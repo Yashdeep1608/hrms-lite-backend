@@ -28,6 +28,7 @@ class Cart(Base):
     business = relationship("Business", back_populates="carts")
     business_contact = relationship("BusinessContact", back_populates="carts")
     items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
+    order = relationship("Order", back_populates="cart", cascade="all, delete-orphan")
     created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_carts")
     coupon = relationship("Coupon", foreign_keys=[coupon_id])
     coupon = relationship("Offer", foreign_keys=[offer_id])

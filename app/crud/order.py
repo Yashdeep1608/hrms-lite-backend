@@ -1,19 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import UUID, DateTime, func, or_
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import List, Optional
 from app.models import Cart, CartItem
 from app.models.combo import Combo
+from app.models.contact import BusinessContactLedger
 from app.models.coupon import Coupon
-from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, ConditionOperator, OfferConditionType, OfferType
+from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, ConditionOperator, OfferConditionType, OfferType, OrderPaymentMethod, OrderPaymentStatus
 from app.models.offer import Offer, OfferCondition
-from app.models.order import Order
+from app.models.order import Order, OrderDeliveryDetail, OrderPayment
 from app.models.product import Product
 from app.models.service import Service
 from app.models.user import User
 from app.schemas.cart import AddToCart
 from sqlalchemy import and_
+
+from app.schemas.order import PayNowRequest, PlaceOrderRequest
 
 def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
     quantity = max(quantity, 1)
@@ -104,6 +107,58 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
     final_price_total = (final_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     return actual_price_total, discount_price_total, tax_amount_total, final_price_total
+def generate_order_number(business_id: int) -> str:
+    timestamp_ms = int(time.time() * 1000)
+    business_part = hex(business_id)[2:].upper()  # remove '0x' and uppercase
+    return f"ORD-{business_part}-{timestamp_ms}"
+def reduce_stock_for_order(db: Session, cart_id: int):
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
+    if not cart:
+        raise ValueError(f"Cart {cart_id} not found")
+
+    # 1. Reduce product stock
+    for item in cart.items:
+        if item.item_type == "product":
+            product = db.query(Product).filter(Product.id == item.item_id).first()
+            if not product:
+                raise ValueError(f"Product {item.item_id} not found")
+
+            if product.stock_qty is None:
+                continue  # Skip untracked/digital products
+
+            if product.stock_qty < item.quantity:
+                raise ValueError(f"Insufficient stock for product: {product.name}")
+
+            product.stock_qty -= item.quantity
+
+        elif item.item_type == "service":
+            service = db.query(Service).filter(Service.id == item.item_id).first()
+            if not service:
+                raise ValueError(f"Service {item.item_id} not found")
+
+            if service.capacity is not None:
+                if service.capacity < item.quantity:
+                    raise ValueError(f"Insufficient capacity for service: {service.name}")
+                service.capacity -= item.quantity
+
+    if cart.coupon_id:
+        coupon = db.query(Coupon).filter(Coupon.id == cart.coupon_id).first()
+        if coupon and coupon.is_active:
+            if coupon.available_limit is not None:
+                # Initialize if needed
+                coupon.applied_count = coupon.applied_count or 0
+
+                if coupon.applied_count >= coupon.available_limit:
+                    raise ValueError("Coupon usage limit exceeded")
+
+                coupon.applied_count += 1
+
+                # Deactivate coupon if usage limit reached
+                if coupon.applied_count >= coupon.available_limit:
+                    coupon.is_active = False
+
+    db.flush()
+
 
 def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
     def get_or_create_cart():
@@ -588,3 +643,173 @@ def remove_coupon(db: Session, cart: Cart):
 #         return datetime.min.replace(tzinfo=timezone.utc)
 #     return datetime.fromisoformat(dt_str)
 
+def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
+    # Step 1: Fetch the cart
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
+    if not cart:
+        raise ValueError("Cart not found")
+
+    # Step 2: Check for existing draft/pending order
+    is_new_order = False
+    existing_order = db.query(Order).filter(
+        Order.cart_id == cart_id, Order.order_status == CartOrderStatus.PENDING
+    ).first()
+
+    if existing_order:
+        order = existing_order
+    else:
+        order = Order(
+            order_number=generate_order_number(cart.business_id),
+            cart_id = cart_id,
+            business_id=cart.business_id,
+            business_contact_id=cart.business_contact_id,
+            anonymous_id=cart.anonymous_id,
+            source=cart.source,
+            created_by_user_id=cart.created_by_user_id or None,
+            order_status=CartOrderStatus.PENDING,
+        )
+        is_new_order = True
+    # Step 3: Fetch cart items
+    cart_items = db.query(CartItem).filter(CartItem.cart_id == cart.id).all()
+    if not cart_items:
+        raise ValueError("No items in cart to place order")
+
+    # Step 4: Calculate amounts
+    subtotal = sum(item.actual_price * item.quantity for item in cart_items)
+    tax_total = sum((item.tax_amount or 0) * item.quantity for item in cart_items)
+
+    delivery_fee = 0.0  # Placeholder for dynamic logic
+    handling_fee = 0.0  # Placeholder for dynamic logic
+
+    # Step 5: Assign pricing details
+    order.subtotal = subtotal
+    order.coupon_discount = cart.coupon_discount or 0.0
+    order.offer_discount = cart.offer_discount or 0.0
+    order.additional_discount = additional_discount or 0.0
+    order.delivery_fee = delivery_fee
+    order.handling_fee = handling_fee
+    order.tax_total = tax_total
+
+    order.total_amount = (
+        subtotal
+        - order.coupon_discount
+        - order.offer_discount
+        - order.additional_discount
+        + tax_total
+        + delivery_fee
+        + handling_fee
+    )
+
+    # Step 6: Save the order
+    if is_new_order:
+        db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    return order
+
+def pay_now(db: Session, payload_list: List[PayNowRequest]):
+    if not payload_list:
+        raise ValueError("No payment data provided.")
+
+    results = []
+
+    for payload in payload_list:
+        # Validate order exists
+        order = db.query(Order).filter(Order.id == payload.order_id).first()
+        if not order:
+            raise ValueError(f"Order ID {payload.order_id} not found.")
+
+        # Validate positive amount
+        if payload.amount <= 0:
+            raise ValueError(f"Amount must be greater than 0 for Order ID {payload.order_id}.")
+
+        # Create payment entry
+        payment = OrderPayment(
+            order_id=payload.order_id,
+            amount=payload.amount,
+            payment_method=payload.payment_method,
+            payment_gateway=payload.payment_gateway or None,
+            payment_reference_id=payload.gateway_reference_id or None,
+            gateway_status = payload.gateway_status or None,
+            payment_status=payload.payment_status,
+            is_manual_entry=payload.is_manual_entry or False,
+            paid_at=datetime.now(timezone.utc),
+            currency = 'INR'
+        )
+        if payload.payment_method == OrderPaymentMethod.CREDIT:
+            # Create ledger DEBIT entry (i.e., customer paid amount)
+            ledger_entry = BusinessContactLedger(
+                business_id=order.business_id,
+                business_contact_id=order.business_contact_id,
+                entry_type="debit",
+                amount=payload.amount,
+                payment_method=None,
+                notes= f"Credit entry from Order #{order.id}",
+            )
+            db.add(ledger_entry)
+        db.add(payment)
+        results.append(payment)
+
+    # Commit all at once
+    db.commit()
+
+    return {
+        "status": "success",
+        "results": results,
+        "message": "Payments recorded successfully."
+    }    
+
+def place_order(
+    db: Session,
+    payload:PlaceOrderRequest
+):
+    order = db.query(Order).filter(Order.id == payload.order_id).first()
+
+    if not order:
+        raise ValueError("Order not found")
+
+    if order.order_status != CartOrderStatus.PENDING:
+        raise ValueError("Order is not in pending status")
+
+    # Step 1 Update order status
+    order.order_status = CartOrderStatus.CONFIRMED
+
+    # Step 2: If COD order, create OrderPayment entry
+    if payload.is_cod_order:
+        order.order_status = CartOrderStatus.PENDING
+        cod_payment = OrderPayment(
+            order_id=order.id,
+            amount=order.total_payable_amount,
+            payment_method=OrderPaymentMethod.COD,
+            payment_status=OrderPaymentStatus.PENDING,
+            is_manual_entry=False,
+            currency="INR"
+        )
+        db.add(cod_payment)
+
+        # Step 3: Add Delivery Details (only if required fields exist)
+        if payload.delivery_type and payload.address_line1:
+            delivery = OrderDeliveryDetail(
+                order_id=order.id,
+                delivery_type=payload.delivery_type,
+                address_line1=payload.address_line1,
+                address_line2=payload.address_line2,
+                city=payload.city,
+                state=payload.state,
+                postal_code=payload.postal_code,
+                country=payload.country,
+                scheduled_date=payload.scheduled_date,
+                scheduled_time_slot=payload.scheduled_time_slot,
+                delivery_status="not_started",
+                delivery_notes=payload.delivery_notes,
+            )
+            db.add(delivery)
+    
+    # Step 3: Reduce stock
+    reduce_stock_for_order(db, order.cart_id)
+
+    db.commit()
+    db.refresh(order)
+
+    return order

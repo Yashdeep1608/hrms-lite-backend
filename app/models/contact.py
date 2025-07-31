@@ -1,7 +1,7 @@
 # models/contact.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, ForeignKey, Text, Boolean, TIMESTAMP, UniqueConstraint,
+    Column, Integer, Numeric, String, ForeignKey, Text, Boolean, TIMESTAMP, UniqueConstraint,
     DateTime, Table
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -59,6 +59,7 @@ class BusinessContact(Base):
     orders = relationship("Order", back_populates="business_contact")
     tag_links = relationship("BusinessContactTag", back_populates="business_contact", cascade="all, delete")
     group_links = relationship("GroupContact", back_populates="business_contact", cascade="all, delete")
+    ledgers = relationship("BusinessContactLedger", back_populates="business_contact", cascade="all, delete")
     sponsor = relationship("BusinessContact", remote_side=[id], backref="downlines")
     managed_by_user = relationship("User", back_populates="business_contacts_managed")
 
@@ -163,3 +164,16 @@ class GroupContact(Base):
     business_contact = relationship("BusinessContact", back_populates="group_links")
     group = relationship("Groups", back_populates="contact_links")
     user = relationship("User",back_populates="assigned_group_contacts")  # Who added this contact to group
+
+class BusinessContactLedger(Base):
+    __tablename__ = 'business_contact_ledgers'
+    id = Column(Integer, primary_key=True)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
+    business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=False)
+    entry_type = Column(String, nullable=False)  # 'credit' or 'debit'
+    amount = Column(Numeric(10, 2), nullable=False)
+    payment_method = Column(String, nullable=True)  # required for debit
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    business_contact = relationship("BusinessContact", back_populates="ledgers")

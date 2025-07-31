@@ -227,6 +227,11 @@ class OrderPaymentMethod(str,enum.Enum):
     NETBANKING = "netbanking"
     WALLET = "wallet"
     CASH = "cash"
+    CHEQUE = "cheque"
+    BANK_TRANSFER = "bank_transfer"
+    CREDIT = "credit"  # Business ledger/credit (Buy now pay later)
+    COD = "cod" # Cash on delivery
+
 class OrderPaymentStatus(enum.Enum):
     PENDING = "pending"
     PAID = "paid"

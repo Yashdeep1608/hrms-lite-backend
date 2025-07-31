@@ -9,6 +9,7 @@ class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True)
     order_number = Column(String, unique=True, nullable=False, index=True)
+    cart_id = Column(Integer, ForeignKey("carts.id", ondelete="CASCADE"), nullable=False)
     business_id = Column(Integer, ForeignKey('businesses.id', ondelete='CASCADE'), nullable=False, index=True)
     business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=True, index=True)
     anonymous_id = Column(UUID(as_uuid=True), nullable=True)
@@ -31,10 +32,11 @@ class Order(Base):
 
     # Relationships
     business = relationship("Business", back_populates="orders")
+    cart = relationship("Cart", back_populates="order")
     business_contact = relationship("BusinessContact", back_populates="orders")
     created_by = relationship("User", back_populates="created_orders")
 
-    payment = relationship("OrderPayment", back_populates="order",uselist=False, cascade="all, delete-orphan")
+    payments = relationship("OrderPayment", back_populates="order", cascade="all, delete-orphan")
     delivery_detail = relationship("OrderDeliveryDetail", back_populates="order", uselist=False, cascade="all, delete-orphan")
     status_logs = relationship("OrderStatusLog", back_populates="order", cascade="all, delete-orphan")
     action_logs = relationship("OrderActionLog", back_populates="order", cascade="all, delete-orphan")
@@ -44,24 +46,24 @@ class OrderPayment(Base):
     __tablename__ = "order_payments"
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    payment_gateway = Column(String, nullable=False)
+    payment_gateway = Column(String, nullable=True)
     payment_reference_id = Column(String, nullable=True)
     payment_method = Column(Enum(OrderPaymentMethod), nullable=False)
-    gateway_status = Column(String, nullable=False)
+    gateway_status = Column(String, nullable=True)
     payment_status = Column(Enum(OrderPaymentStatus), nullable=False, index=True)
     amount = Column(Numeric(10, 2), nullable=False)
     currency = Column(String(10), default="INR", nullable=False)
     gateway_fee = Column(Numeric(10,2), nullable=True)
     receipt_url = Column(String, nullable=True)
     paid_at = Column(DateTime(timezone=True), nullable=True)
+    is_manual_entry = Column(Boolean,default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     __table_args__ = (
     Index('ix_order_payments_order_id_status', 'order_id', 'payment_status'),
-        UniqueConstraint('order_id', name='uq_order_payment_order_id'),  # Enforce one payment per order
     )
     
-    order = relationship("Order", back_populates="payment")
+    order = relationship("Order", back_populates="payments")
 
 # order_delivery_details table
 class OrderDeliveryDetail(Base):
