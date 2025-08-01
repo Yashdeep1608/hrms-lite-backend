@@ -25,7 +25,7 @@ def create_faq(faq_in: FAQCreateSchema, request: Request, db: Session = Depends(
         data = crud_faq.create_faq(db, faq_in)
         return ResponseHandler.success(message=translator.t("faq_created", lang), data=data.id)
     except Exception as e:
-        return ResponseHandler.bad_request(
+        return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
@@ -38,7 +38,7 @@ def update_faq(faq_id: int, faq_in: FAQUpdateSchema, request: Request, db: Sessi
         data = crud_faq.update_faq(db, faq_id, faq_in)
         return ResponseHandler.success(message=translator.t("faq_updated", lang), data=data.id)
     except Exception as e:
-        return ResponseHandler.bad_request(
+        return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
@@ -51,7 +51,7 @@ def get_faqs(request: Request, business_id: Optional[int] = None, db: Session = 
         data = crud_faq.get_faqs(db, business_id=business_id)
         return ResponseHandler.success(message=translator.t("faqs_retrieved", lang), data=jsonable_encoder(data))
     except Exception as e:
-        return ResponseHandler.bad_request(
+        return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
@@ -64,7 +64,7 @@ def get_faq(faq_id: int, request: Request, db: Session = Depends(get_db)):
         data = crud_faq.get_faq_by_id(db, faq_id)
         return ResponseHandler.success(message=translator.t("faq_retrieved", lang), data=data)
     except Exception as e:
-        return ResponseHandler.bad_request(
+        return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
@@ -77,7 +77,7 @@ def delete_faq(faq_id: int, request: Request, db: Session = Depends(get_db)):
         crud_faq.delete_faq(db, faq_id)
         return ResponseHandler.success(message=translator.t("faq_deleted", lang))
     except Exception as e:
-        return ResponseHandler.bad_request(
+        return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )

@@ -40,6 +40,21 @@ def update_coupon(coupon_id:int,coupon_in: UpdateCoupon, request:Request ,db: Se
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
+@router.get("/dropdown")
+def get_coupon_dropdown(request: Request,db: Session = Depends(get_db),current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+
+    try:
+        data = crud_coupon.get_coupon_dropdown(db, current_user)
+        return ResponseHandler.success(data=jsonable_encoder(data))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
 
 @router.post("/get-coupons")
 def get_coupons(request:Request ,filters: CouponFilters,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -76,3 +91,4 @@ def delete_coupon(coupon_id:int,request:Request ,db: Session = Depends(get_db)):
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
+

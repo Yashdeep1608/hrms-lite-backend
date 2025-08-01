@@ -30,3 +30,9 @@ class PlaceOrderRequest(BaseModel):
     scheduled_date: Optional[date] = None
     scheduled_time_slot: Optional[str] = None
     delivery_notes: Optional[str] = None
+
+class OrderStatusUpdateRequest(BaseModel):
+    order_id: int
+    new_status: str
+    reason: Optional[str] = None
+    notes: Optional[str] = None  # Keep this for flexibility

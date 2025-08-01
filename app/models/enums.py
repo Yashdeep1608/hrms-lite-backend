@@ -232,8 +232,23 @@ class OrderPaymentMethod(str,enum.Enum):
     CREDIT = "credit"  # Business ledger/credit (Buy now pay later)
     COD = "cod" # Cash on delivery
 
-class OrderPaymentStatus(enum.Enum):
+class OrderPaymentStatus(str,enum.Enum):
     PENDING = "pending"
     PAID = "paid"
     FAILED = "failed"
     REFUNDED = "refunded"
+
+class ProductStockSource(str,enum.Enum):
+    ORDER = "order"                     # Stock out due to confirmed customer order
+    MANUAL = "manual"                   # Manual update from admin panel or staff
+    SUPPLY = "supply"                   # Stock in from supplier or purchase order
+    RETURN = "return"                   # Stock in from customer return
+    ADJUSTMENT = "adjustment"           # Stock correction (e.g., damaged, lost, audit)
+    TRANSFER_IN = "transfer_in"         # Stock in from another warehouse
+    TRANSFER_OUT = "transfer_out"       # Stock out to another warehouse
+    COMBO_BREAK = "combo_break"         # Stock in when combo is broken
+    COMBO_BUILD = "combo_build"         # Stock out when combo is assembled
+    EXPIRED = "expired"                 # Stock out due to expiration
+    DEMO = "demo"                       # Stock out for samples/demos
+    SYSTEM_CORRECTION = "system"        # Stock adjusted due to system-level correction
+    

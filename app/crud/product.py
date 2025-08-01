@@ -4,10 +4,11 @@ from sqlalchemy import any_, not_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
 from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
-from app.models.product import Product, ProductCustomField, ProductCustomFieldValue, ProductImage, ProductMasterData
+from app.models.enums import ProductStockSource
+from app.models.product import Product, ProductCustomField, ProductCustomFieldValue, ProductImage, ProductMasterData, ProductStockLog
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
-from typing import Tuple, List
+from typing import Optional, Tuple, List
 import hashlib
 from sqlalchemy.orm import subqueryload
 
@@ -494,3 +495,45 @@ def delete_custom_field(db: Session, custom_field_id: int, current_user: User):
     db.delete(custom_field)
     db.commit()
     return custom_field
+
+def add_product_stock_log(
+    db: Session,
+    product_id: int,
+    quantity: float,
+    is_stock_in: bool,
+    source: Optional[str] = None,
+    source_id: Optional[int] = None,
+    created_by: Optional[int] = None,
+) -> None:
+    # Fetch current stock (assuming Product has a `stock` field)
+    product = db.query(Product).filter(Product.id == product_id).first()
+    
+    if not product:
+        raise ValueError(f"Product with ID {product_id} not found")
+
+    stock_before = product.stock_qty or 0
+    stock_after = stock_before + quantity if is_stock_in else stock_before - quantity
+
+    # Generate default internal note
+    direction = "Stock-In" if is_stock_in else "Stock-Out"
+    source_str = f" via {source.upper()}" if source else ""
+    ref_str = f" (Ref ID: {source_id})" if source_id else ""
+    note = f"{direction} of {quantity} units{source_str}{ref_str}"
+
+    # Create log entry
+    log = ProductStockLog(
+        product_id=product_id,
+        quantity=quantity,
+        is_stock_in=is_stock_in,
+        stock_before=stock_before,
+        stock_after=stock_after,
+        source=ProductStockSource(source) if source else None,
+        source_id=source_id,
+        note=note,
+        created_by=created_by,
+    )
+    db.add(log)
+
+    # Update product stock directly
+    product.stock = stock_after
+    db.commit()

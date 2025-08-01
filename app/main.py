@@ -3,7 +3,7 @@ from app.helpers.response import ResponseHandler
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support,notification,marketing
+from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support,notification,marketing,order
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Request
@@ -82,3 +82,4 @@ app.include_router(faq.router)
 app.include_router(support.router)
 app.include_router(notification.router)
 app.include_router(marketing.router)
+app.include_router(order.router)

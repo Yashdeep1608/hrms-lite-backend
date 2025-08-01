@@ -1,7 +1,7 @@
 # models/product.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    ARRAY, Column, Enum, Integer, String, Text, ForeignKey,
+    ARRAY, UUID, Column, Enum, Integer, String, Text, ForeignKey,
     Numeric, Boolean,DateTime
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -84,3 +84,14 @@ class Service(Base):
     service_category = relationship("Category", foreign_keys=[category_id], back_populates="services")
     created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_service")
     parent_service = relationship("Service", remote_side=[id], backref="variants")
+
+
+class ServiceBookingLog(Base):
+    __tablename__ = "service_booking_logs"
+
+    id = Column(Integer, primary_key=True)
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

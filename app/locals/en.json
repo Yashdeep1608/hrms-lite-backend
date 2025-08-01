@@ -117,5 +117,13 @@
   "faq_not_found":"FAQ not found",
   "updated_successfully":"Updated successfully",
   "deleted_successfully":"Deleted successfully",
-  "created_successfully":"Created successfully"
+  "created_successfully":"Created successfully",
+  "added_in_cart":"Added in cart",
+  "removed":"Removed",
+  "coupon_applied":"Coupon Applied",
+  "coupon_removed":"Coupon Removed",
+  "checkout_success": "Checkout completed successfully.",
+  "payment_success": "Payment completed successfully.",
+  "order_placed": "Order has been placed successfully.",
+  "order_status_updated": "Order status updated successfully."
 }

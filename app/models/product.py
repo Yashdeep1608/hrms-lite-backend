@@ -7,6 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, backref
 from app.db.base import Base
+from app.models.enums import ProductStockSource
 
 class Product(Base):
     __tablename__ = 'products'
@@ -134,3 +135,20 @@ class ProductImage(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     product = relationship("Product", back_populates="images")
+
+class ProductStockLog(Base):
+    __tablename__ = "product_stock_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    is_stock_in = Column(Boolean, default=False)
+    quantity = Column(Integer, nullable=False)
+    stock_before = Column(Integer, nullable=True)
+    stock_after = Column(Integer, nullable=True)
+
+    source = Column(Enum(ProductStockSource), nullable=True)    
+    source_id = Column(Integer, nullable=True)  # order_id, return_id, etc.
+
+    note = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -9,6 +9,11 @@ from app.models.enums import RoleTypeEnum
 from app.models.user import User
 from app.schemas.coupon import CouponFilters, CreateCoupon, UpdateCoupon
 
+def get_coupon_dropdown(db:Session,current_user:User):
+    query = db.query(Coupon).filter(Coupon.business_id == current_user.business_id)
+    coupons = query.order_by(Coupon.created_at.asc()).all()
+    return coupons
+
 def create_coupon(db: Session, data: CreateCoupon, current_user: User) -> Coupon:
     coupon = Coupon(
         code=data.code,
