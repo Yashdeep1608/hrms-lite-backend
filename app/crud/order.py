@@ -468,7 +468,7 @@ def get_cart(db: Session,business_id:int,business_contact_id:UUID = None,anonymo
     cart = db.query(Cart).options(selectinload(Cart.items)).filter(*filters).first()
 
     if cart.business_contact_id and cart.coupon_id is None and not cart.coupon_removed:
-        total_cart_value = sum(item.final_price * item.quantity for item in cart_items)
+        total_cart_value = sum(item.final_price * item.quantity for item in cart.items)
         coupon = db.query(Coupon).filter(
             Coupon.is_auto_applied == True,
             Coupon.business_id == business_id,
