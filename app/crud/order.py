@@ -1,4 +1,5 @@
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
+import time
 from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import UUID, DateTime, func, or_
 from sqlalchemy.orm import Session
@@ -240,10 +241,7 @@ def get_entities(db: Session, payload: CartEntities, current_user: User):
     if fetch_products:
         query = db.query(Product).filter(
             Product.business_id == current_user.business_id,
-            or_(
-                Product.parent_product_id == None,
-                and_(Product.parent_product_id != None, Product.is_product_variant == False)
-            )
+            Product.is_active == True,
         )
 
         if payload.search:
@@ -261,15 +259,6 @@ def get_entities(db: Session, payload: CartEntities, current_user: User):
 
         # Pagination
         products = query.offset((payload.page - 1) * payload.page_size).limit(payload.page_size).all()
-
-        # Now attach variants for variantable base products, if any
-        for product in products:
-            if product.is_product_variant and product.parent_product_id is None:
-                variants = db.query(Product).filter(
-                    Product.parent_product_id == product.id,
-                    Product.is_product_variant == True
-                ).all()
-                product.variants = variants
 
     if fetch_services:
         query = db.query(Service).filter(
@@ -474,7 +463,7 @@ def get_cart(db: Session,business_id:int,business_contact_id:UUID = None,anonymo
             Coupon.business_id == business_id,
             Coupon.min_cart_value <= total_cart_value,
             Coupon.is_active == True
-        ).order_by(Coupon.created_at.desc).first()
+        ).order_by(Coupon.created_at.desc()).first()
         if coupon:
             try:
                 result = apply_coupon(db, cart, coupon.code)
@@ -868,6 +857,9 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
 
         if existing_order:
             order = existing_order
+            order.business_contact_id = cart.business_contact_id
+            order.anonymous_id = cart.anonymous_id
+            order.order_status = CartOrderStatus.PENDING
         else:
             order = Order(
                 order_number=generate_order_number(cart.business_id),
@@ -886,30 +878,30 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
             raise ValueError("No items in cart to place order")
 
         # Step 4: Calculate amounts
-        subtotal = sum(item.actual_price * item.quantity for item in cart_items)
-        tax_total = sum((item.tax_amount or 0) * item.quantity for item in cart_items)
+        subtotal = sum(Decimal(str(item.actual_price)) * item.quantity for item in cart_items)
+        tax_total = sum(Decimal(str(item.tax_amount or 0)) * item.quantity for item in cart_items)
 
-        delivery_fee = 0.0  # Placeholder for dynamic logic
-        handling_fee = 0.0  # Placeholder for dynamic logic
+        delivery_fee = Decimal("0.0")  # Placeholder for dynamic logic
+        handling_fee = Decimal("0.0")  # Placeholder for dynamic logic
 
         # Step 5: Assign pricing details
         order.subtotal = subtotal
-        order.coupon_discount = cart.coupon_discount or 0.0
-        order.offer_discount = cart.offer_discount or 0.0
-        order.additional_discount = additional_discount or 0.0
+        order.coupon_discount = Decimal(str(cart.coupon_discount or 0.0))
+        order.offer_discount = Decimal(str(cart.offer_discount or 0.0))
+        order.additional_discount = Decimal(str(additional_discount or 0.0))
         order.delivery_fee = delivery_fee
         order.handling_fee = handling_fee
         order.tax_total = tax_total
 
         order.total_amount = (
-            subtotal
-            - order.coupon_discount
-            - order.offer_discount
-            - order.additional_discount
-            + tax_total
-            + delivery_fee
-            + handling_fee
-        )
+            Decimal(subtotal)
+            - Decimal(order.coupon_discount)
+            - Decimal(order.offer_discount)
+            - Decimal(order.additional_discount)
+            + Decimal(tax_total)
+            + Decimal(delivery_fee)
+            + Decimal(handling_fee)
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
         # Step 6: Save the order
         if is_new_order:
@@ -939,12 +931,11 @@ def pay_now(db: Session, payload_list: List[PayNowRequest]):
             # Validate positive amount
             if payload.amount <= 0:
                 raise ValueError(f"Amount must be greater than 0 for Order ID {payload.order_id}.")
-
             # Create payment entry
             payment = OrderPayment(
                 order_id=payload.order_id,
                 amount=payload.amount,
-                payment_method=payload.payment_method,
+                payment_method=OrderPaymentMethod.CASH if payload.payment_method is 'offline' else OrderPaymentMethod.UPI,
                 payment_gateway=payload.payment_gateway or None,
                 payment_reference_id=payload.gateway_reference_id or None,
                 gateway_status = payload.gateway_status or None,

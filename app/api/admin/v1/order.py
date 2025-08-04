@@ -136,7 +136,7 @@ def assign_cart_contact(payload:AssignCartContact, request: Request, db: Session
     lang = get_lang_from_request(request)
     try:
         data = crud_order.assign_cart_contact(db,payload,current_user)
-        return ResponseHandler.success(message=translator.t("coupon_applied", lang), data=data)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=data)
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
     except Exception as e:
@@ -178,7 +178,7 @@ def place_order(payload: PlaceOrderRequest, request: Request, db: Session = Depe
     lang = get_lang_from_request(request)
     try:
         data = crud_order.place_order(db, payload)
-        return ResponseHandler.success(message=translator.t("order_placed", lang), data=data)
+        return ResponseHandler.success(message=translator.t("order_placed", lang), data=jsonable_encoder(data))
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
     except Exception as e:

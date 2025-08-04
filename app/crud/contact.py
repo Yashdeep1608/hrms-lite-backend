@@ -275,8 +275,8 @@ def get_contacts_for_dropdown(db: Session,user:dict ,business_id: int, search: s
                 BusinessContact.first_name.ilike(f"%{search}%"),
                 BusinessContact.last_name.ilike(f"%{search}%"),
                 BusinessContact.label.ilike(f"%{search}%"),
-                Contact.email.ilike(search),
-                Contact.phone_number.ilike(search),
+                Contact.email.ilike(f"%{search}%"),
+                Contact.phone_number.ilike(f"%{search}%"),
             )
         )
 

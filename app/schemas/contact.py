@@ -67,15 +67,15 @@ class CustomFieldInput(BaseModel):
 class ContactCreate(BaseModel):
     isd_code: Optional[str]
     phone_number: str
-    email: Optional[str]
-    country_code: Optional[str]
-    gender: Optional[str]
+    email: Optional[str] = None
+    country_code: Optional[str] = None
+    gender: Optional[str] = None
     preferred_language: Optional[str] = 'en'
 
-    first_name: Optional[str]
-    last_name: Optional[str]
-    label: Optional[str]
-    notes: Optional[str]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    label: Optional[str] = None
+    notes: Optional[str] = None
     is_favorite: Optional[bool] = False
     sponsor_id: Optional[UUID] = None
 
