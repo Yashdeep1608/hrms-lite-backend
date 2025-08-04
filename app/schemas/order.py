@@ -36,3 +36,15 @@ class OrderStatusUpdateRequest(BaseModel):
     new_status: str
     reason: Optional[str] = None
     notes: Optional[str] = None  # Keep this for flexibility
+
+class OrderListFilters(BaseModel):
+    order_number: Optional[str] = None
+    business_contact_id: Optional[UUID] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+    page: int = 1
+    page_size: int = 20
+    sort_by: Optional[str] = 'created_at'
+    sort_dir: Optional[str] = "asc"

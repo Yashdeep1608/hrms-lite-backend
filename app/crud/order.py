@@ -11,7 +11,7 @@ from app.models import Cart, CartItem
 from app.models.combo import Combo
 from app.models.contact import BusinessContact, BusinessContactLedger, Contact
 from app.models.coupon import Coupon
-from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, ConditionOperator, OfferConditionType, OfferType, OrderPaymentMethod, OrderPaymentStatus
+from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, ConditionOperator, OfferConditionType, OfferType, OrderPaymentMethod, OrderPaymentStatus, RoleTypeEnum
 from app.models.offer import Offer, OfferCondition
 from app.models.order import Order, OrderActionLog, OrderDeliveryDetail, OrderPayment, OrderStatusLog
 from app.models.product import Product
@@ -19,9 +19,9 @@ from app.models.service import Service, ServiceBookingLog
 from app.models.user import User
 from app.schemas.cart import AddToCart, AssignCartContact, CartEntities
 from sqlalchemy import and_
-
+from sqlalchemy.orm import joinedload
 from app.schemas.contact import ContactCreate
-from app.schemas.order import OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
+from app.schemas.order import OrderListFilters, OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
 
 def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
     quantity = max(quantity, 1)
@@ -466,7 +466,7 @@ def get_cart(db: Session,business_id:int,business_contact_id:UUID = None,anonymo
         ).order_by(Coupon.created_at.desc()).first()
         if coupon:
             try:
-                result = apply_coupon(db, cart, coupon.code)
+                result = apply_coupon(db, cart.id, coupon.code)
                 if result.get("success"):
                     cart.coupon_id = result["coupon_id"]
                     cart.coupon_discount = result["discount"]
@@ -1109,3 +1109,58 @@ def update_order_status_manually(db: Session,payload: OrderStatusUpdateRequest,c
     db.commit()
     db.refresh(order)
     return order
+
+def get_orders(db: Session, filters: OrderListFilters, current_user):
+    query = db.query(Order).filter(Order.business_id == current_user.business_id)
+
+    if filters.order_number:
+        query = query.filter(Order.order_number.ilike(f"%{filters.order_number}%"))
+
+    if filters.business_contact_id:
+        query = query.filter(Order.business_contact_id == filters.business_contact_id)
+
+    if filters.source:
+        query = query.filter(Order.source == filters.source)
+
+    if filters.status:
+        query = query.filter(Order.order_status == filters.status)
+
+    if filters.from_date:
+        query = query.filter(Order.created_at >= filters.from_date)
+
+    if filters.to_date:
+        query = query.filter(Order.created_at <= filters.to_date)
+
+    if current_user.role not in  [RoleTypeEnum.ADMIN,RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN]:
+        query = query.filter(Order.created_by_user_id == current_user.id)
+       
+    sort_attr = getattr(Order, filters.sort_by or "created_at", None)
+    if sort_attr is not None:
+        query = query.order_by(sort_attr.asc() if filters.sort_dir == "asc" else sort_attr.desc())
+
+    # Count and paginate
+    skip = (filters.page - 1) * filters.page_size
+    total = query.count()
+    items = query.offset(skip).limit(filters.page_size).all()
+    # Pagination
+    return {
+        "items":items,
+        "total":total
+    }
+
+def get_order_details(db: Session, order_id: int) -> Order:
+    try:
+        order = (
+            db.query(Order)
+            .options(
+                joinedload(Order.payments),
+                joinedload(Order.delivery_detail),
+                joinedload(Order.status_logs),
+                joinedload(Order.action_logs),
+            )
+            .filter(Order.id == order_id)
+            .one()
+        )
+        return order
+    except ValueError:
+        raise ValueError("Order not found.")

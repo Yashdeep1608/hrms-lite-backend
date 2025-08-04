@@ -10,11 +10,11 @@ from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from app.schemas.cart import AddToCart, AssignCartContact, CartEntities, GetCartRequest
 from app.schemas.faq import *
-from app.schemas.order import OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
+from app.schemas.order import OrderListFilters, OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
 
 router = APIRouter(
     prefix="/api/admin/v1/order",
-    tags=["FAQ"],
+    tags=["Order"],
     dependencies=[Depends(get_current_user)]
 )
 translator = Translator()
@@ -201,3 +201,30 @@ def update_order_status_manually(payload: OrderStatusUpdateRequest, request: Req
             error=str(e)
         )
 
+@router.post("/get-orders")
+def get_orders(payload:OrderListFilters,request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_order.get_orders(db,payload,current_user)
+        return ResponseHandler.success(message=translator.t("order_statuses_retrieved", lang), data=jsonable_encoder(data))
+    except ValueError as e:
+        return ResponseHandler.bad_request(message=str(e))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+    
+@router.get("/get-order-details")
+def get_order_details(order_id:int,request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_order.get_order_details(db,order_id=order_id)
+        return ResponseHandler.success(message=translator.t("order_statuses_retrieved", lang), data=jsonable_encoder(data))
+    except ValueError as e:
+        return ResponseHandler.bad_request(message=str(e))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
