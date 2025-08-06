@@ -9,7 +9,7 @@ class Cart(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     business_id = Column(Integer, ForeignKey('businesses.id', ondelete='CASCADE'), nullable=False,index=True)
-    business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=False,index=True)
+    business_contact_id = Column(UUID(as_uuid=True), ForeignKey('business_contacts.id'), nullable=True,index=True)
     anonymous_id = Column(String, nullable=True)
     source = Column(Enum(CartOrderSource), nullable=False,index=True)
     cart_status = Column(Enum(CartStatus), nullable=False, default=CartStatus.ACTIVE, index=True)

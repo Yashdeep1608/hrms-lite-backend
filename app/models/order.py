@@ -27,6 +27,8 @@ class Order(Base):
     is_delivery = Column(Boolean, default=False, nullable=False)
     is_online_payment = Column(Boolean, default=False, nullable=False)
     payment_mode = Column(Enum(OrderPaymentMode), nullable=False, default="offline")
+    invoice_number = Column(String, nullable=True, index=True)
+    invoice_url = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -45,6 +47,7 @@ class Order(Base):
 class OrderPayment(Base):
     __tablename__ = "order_payments"
     id = Column(Integer, primary_key=True)
+    transaction_id = Column(String, unique=True, nullable=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     payment_gateway = Column(String, nullable=True)
     payment_reference_id = Column(String, nullable=True)

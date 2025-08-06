@@ -1,13 +1,26 @@
+import asyncio
+from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
+import os
 import time
 from decimal import ROUND_HALF_UP, Decimal
+import traceback
+import uuid
+from fastapi import UploadFile
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import UUID, DateTime, func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
+import pdfkit
+from weasyprint import HTML
 from app.crud.contact import create_contact
 from app.crud.product import add_product_stock_log
+from app.helpers.s3 import upload_file_to_s3
+from app.helpers.utils import SimpleUploadFile
 from app.models import Cart, CartItem
+from app.models.business import Business
 from app.models.combo import Combo
 from app.models.contact import BusinessContact, BusinessContactLedger, Contact
 from app.models.coupon import Coupon
@@ -121,17 +134,80 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
     if not cart:
         raise ValueError(f"Cart {cart_id} not found")
 
+    # 1. Collect total product quantities required (including combos)
+    required_product_qty = defaultdict(int)
+    required_service_qty = []
+
     def get_effective_start_date(item):
         return item.start_date or datetime.now(timezone.utc)
 
-    def reduce_product_stock(product_id: int, quantity: int):
+    # First pass: calculate total needed to validate
+    for item in cart.items:
+        if item.item_type == "product":
+            required_product_qty[item.item_id] += item.quantity
+
+        elif item.item_type == "service":
+            required_service_qty.append((item, get_effective_start_date(item)))
+
+        elif item.item_type == "combo":
+            combo = db.query(Combo).filter(Combo.id == item.item_id).first()
+            if not combo:
+                raise ValueError(f"Combo {item.item_id} not found")
+
+            for combo_item in combo.items:
+                if combo_item.item_type == "product":
+                    required_product_qty[combo_item.item_id] += combo_item.quantity * item.quantity
+                elif combo_item.item_type == "service":
+                    req_qty = combo_item.quantity * item.quantity
+                    # Collect service item and qty with start_date for capacity check later
+                    # Create a fake item object with quantity and start date for uniformity
+                    fake_item = type('FakeItem', (), {
+                        'item_id': combo_item.item_id, 
+                        'quantity': req_qty, 
+                        'start_date': get_effective_start_date(item)
+                    })()
+                    required_service_qty.append((fake_item, fake_item.start_date))
+
+    # 2. Validate product stocks all at once
+    for product_id, total_qty in required_product_qty.items():
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise ValueError(f"Product {product_id} not found")
         if product.stock_qty is None:
-            return  # Untracked/digital product
-        if product.stock_qty < quantity:
+            continue  # skip untracked products
+        if product.stock_qty < total_qty:
             raise ValueError(f"Insufficient stock for product: {product.name}")
+
+    # 3. Validate service capacities
+    for item, start_date in required_service_qty:
+        service = db.query(Service).filter(Service.id == item.item_id).first()
+        if not service:
+            raise ValueError(f"Service {item.item_id} not found")
+
+        if service.capacity is not None:
+            total_booked = db.query(func.coalesce(func.sum(ServiceBookingLog.quantity), 0)).filter(
+                ServiceBookingLog.service_id == item.item_id,
+                ServiceBookingLog.start_date == start_date
+            ).scalar()
+            if total_booked + item.quantity > service.capacity:
+                raise ValueError(f"Insufficient capacity for service: {service.name} on {start_date.date()}")
+
+    # 4. Validate coupon usage (existing logic)
+    if cart.coupon_id:
+        coupon = db.query(Coupon).filter(Coupon.id == cart.coupon_id).first()
+        if coupon and coupon.is_active:
+            coupon.applied_count = coupon.applied_count or 0
+            if coupon.available_limit is not None and coupon.applied_count >= coupon.available_limit:
+                raise ValueError("Coupon usage limit exceeded")
+
+    # --- If we reached here, all validations passed ---
+
+    # 5. Mutation phase: now reduce stocks, add logs and bookings
+
+    def reduce_product_stock(product_id: int, quantity: int):
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if product.stock_qty is None:
+            return  # skip untracked stock
         product.stock_qty -= quantity
         add_product_stock_log(
             db=db,
@@ -144,20 +220,6 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
         )
 
     def log_service_booking(service_id: int, quantity: int, start_date, in_combo=False):
-        service = db.query(Service).filter(Service.id == service_id).first()
-        if not service:
-            raise ValueError(f"Service {service_id} {'in combo' if in_combo else ''} not found")
-
-        if service.capacity is not None:
-            total_booked = db.query(func.coalesce(func.sum(ServiceBookingLog.quantity), 0)).filter(
-                ServiceBookingLog.service_id == service_id,
-                ServiceBookingLog.start_date == start_date
-            ).scalar()
-            if total_booked + quantity > service.capacity:
-                raise ValueError(
-                    f"Insufficient capacity for service: {service.name} {'in combo' if in_combo else ''} on {start_date.date()}"
-                )
-
         booking_log = ServiceBookingLog(
             service_id=service_id,
             order_id=order_id,
@@ -178,31 +240,59 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
 
         elif item.item_type == "combo":
             combo = db.query(Combo).filter(Combo.id == item.item_id).first()
-            if not combo:
-                raise ValueError(f"Combo {item.item_id} not found")
-
             for combo_item in combo.items:
                 combo_qty = combo_item.quantity * item.quantity
-
                 if combo_item.item_type == "product":
                     reduce_product_stock(combo_item.item_id, combo_qty)
-
                 elif combo_item.item_type == "service":
                     log_service_booking(combo_item.item_id, combo_qty, start_date, in_combo=True)
 
-    # Handle coupon usage
+    # 6. Update coupon usage counts (if any)
     if cart.coupon_id:
         coupon = db.query(Coupon).filter(Coupon.id == cart.coupon_id).first()
         if coupon and coupon.is_active:
-            coupon.applied_count = coupon.applied_count or 0
-            if coupon.available_limit is not None:
-                if coupon.applied_count >= coupon.available_limit:
-                    raise ValueError("Coupon usage limit exceeded")
-                coupon.applied_count += 1
-                if coupon.applied_count >= coupon.available_limit:
-                    coupon.is_active = False
+            coupon.applied_count += 1
+            if coupon.available_limit is not None and coupon.applied_count >= coupon.available_limit:
+                coupon.is_active = False
 
-    db.flush()
+    db.commit()  # commit all changes atomically
+def generate_invoice_id():
+    short_id = uuid.uuid4().hex[:16].upper()  # 8 char unique, or use more for safety
+    return f"INV-{short_id}"
+def generate_transaction_id():
+    short_id = uuid.uuid4().hex[:16].upper()
+    return f"TXN-{short_id}"
+def generate_invoice(order, business, business_contact):
+    try:
+        # 1. Load HTML Template
+        env = Environment(loader=FileSystemLoader('app/templates'))
+        template = env.get_template("invoice.html")
+        html_out = template.render(
+            order=order,
+            business=business,
+            business_contact=business_contact
+        )
+
+        # 2. Render PDF from HTML string
+        pdf_io = BytesIO()
+        HTML(string=html_out).write_pdf(pdf_io)
+        pdf_io.seek(0)
+
+        # 3. Wrap in UploadFile
+        filename = f"{order.invoice_number}.pdf"
+        upload_file = SimpleUploadFile(
+            filename=filename,
+            file=pdf_io,
+            content_type="application/pdf"
+        )
+
+        # 4. Upload to S3
+        return upload_file_to_s3(upload_file, folder="invoices")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise Exception(f"Failed to generate invoice: {str(e)}")
 
 def get_entities(db: Session, payload: CartEntities, current_user: User):
     products, services, combos = [], [], []
@@ -842,7 +932,7 @@ def assign_cart_contact(db: Session, payload: AssignCartContact, current_user: U
 #         return datetime.min.replace(tzinfo=timezone.utc)
 #     return datetime.fromisoformat(dt_str)
 
-def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
+def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, current_user: User = None):
     try:
         # Step 1: Fetch the cart
         cart = db.query(Cart).filter(Cart.id == cart_id).first()
@@ -878,8 +968,8 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
             raise ValueError("No items in cart to place order")
 
         # Step 4: Calculate amounts
-        subtotal = sum(Decimal(str(item.actual_price)) * item.quantity for item in cart_items)
-        tax_total = sum(Decimal(str(item.tax_amount or 0)) * item.quantity for item in cart_items)
+        subtotal = sum(Decimal(str(item.actual_price))  for item in cart_items)
+        tax_total = sum(Decimal(str(item.tax_amount or 0)) for item in cart_items)
 
         delivery_fee = Decimal("0.0")  # Placeholder for dynamic logic
         handling_fee = Decimal("0.0")  # Placeholder for dynamic logic
@@ -906,9 +996,16 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
         # Step 6: Save the order
         if is_new_order:
             db.add(order)
+        log_order_status_change(
+            db=db,
+            order=order,
+            from_status=None,  # No previous status for new order
+            to_status=CartOrderStatus.PENDING,
+            current_user=current_user,  # No user context for backend order creation
+            note_text="Order created from cart checkout"
+        )
         db.commit()
         db.refresh(order)
-
         return order
     except ValueError as ve:
         db.rollback()
@@ -917,7 +1014,7 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0):
         db.rollback()
         raise Exception(str(e))  # Optional: convert to HTTPException if needed
 
-def pay_now(db: Session, payload_list: List[PayNowRequest]):
+def pay_now(db: Session, payload_list: List[PayNowRequest],current_user: User = None):
     try:
         if not payload_list:
             raise ValueError("No payment data provided.")
@@ -934,12 +1031,13 @@ def pay_now(db: Session, payload_list: List[PayNowRequest]):
             # Create payment entry
             payment = OrderPayment(
                 order_id=payload.order_id,
+                transaction_id = generate_transaction_id(),
                 amount=payload.amount,
-                payment_method=OrderPaymentMethod.CASH if payload.payment_method is 'offline' else OrderPaymentMethod.UPI,
+                payment_method=OrderPaymentMethod(payload.payment_method),
                 payment_gateway=payload.payment_gateway or None,
                 payment_reference_id=payload.gateway_reference_id or None,
                 gateway_status = payload.gateway_status or None,
-                payment_status=payload.payment_status,
+                payment_status = OrderPaymentStatus.PAID if payload.is_manual_entry else payload.payment_status,
                 is_manual_entry=payload.is_manual_entry or False,
                 paid_at=datetime.now(timezone.utc),
                 currency = 'INR'
@@ -959,10 +1057,16 @@ def pay_now(db: Session, payload_list: List[PayNowRequest]):
             results.append(payment)
 
         order.order_status = CartOrderStatus.CONFIRMED
-            
+        log_order_status_change(
+            db=db,
+            order=order,
+            from_status=CartOrderStatus.PENDING,  # No previous status for new order
+            to_status=CartOrderStatus.CONFIRMED,
+            current_user=current_user,  # No user context for backend order creation
+            note_text=f"Order Status changed to {CartOrderStatus.CONFIRMED} after payment"
+        )
         # Commit all at once
         db.commit()
-
         return {
             "status": "success",
             "results": results,
@@ -975,7 +1079,7 @@ def pay_now(db: Session, payload_list: List[PayNowRequest]):
         db.rollback()
         raise Exception(str(e))  # Optional: convert to HTTPException if needed    
 
-def place_order(db: Session,payload: PlaceOrderRequest):
+def place_order(db: Session,payload: PlaceOrderRequest, current_user: User = None):
     try:
         order = db.query(Order).filter(Order.id == payload.order_id).first()
 
@@ -1030,10 +1134,32 @@ def place_order(db: Session,payload: PlaceOrderRequest):
         
         db.commit()
         db.refresh(order)
-
+        log_order_status_change(
+            db=db,
+            order=order,
+            from_status=CartOrderStatus.CONFIRMED,  # No previous status for new order
+            to_status=CartOrderStatus.COMPLETED,
+            current_user=current_user,  # No user context for backend order creation
+            note_text=f"Order Status changed to {CartOrderStatus.COMPLETED} to {CartOrderStatus.CONFIRMED}"
+        )
         return order
 
     except ValueError as ve:
+        payments = db.query(OrderPayment).filter(OrderPayment.order_id == payload.order_id).all()
+        for payment in payments:
+            payment.payment_status = OrderPaymentStatus.REFUNDED
+        order = db.query(Order).filter(Order.id == payload.order_id).first()
+        old_status = order.order_status
+        order.order_status = CartOrderStatus.CANCELLED
+        log_order_status_change(
+            db=db,
+            order=order,
+            from_status=old_status,  # No previous status for new order
+            to_status=CartOrderStatus.CANCELLED,
+            current_user=current_user,  # No user context for backend order creation
+            note_text=f"Order is cancelled due to error: {str(ve)}"
+        )
+        db.commit()
         db.rollback()
         raise ValueError(str(ve))
     except Exception as e:
@@ -1133,14 +1259,14 @@ def get_orders(db: Session, filters: OrderListFilters, current_user):
 
     if current_user.role not in  [RoleTypeEnum.ADMIN,RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN]:
         query = query.filter(Order.created_by_user_id == current_user.id)
-       
+    
+    total = query.count()
     sort_attr = getattr(Order, filters.sort_by or "created_at", None)
     if sort_attr is not None:
         query = query.order_by(sort_attr.asc() if filters.sort_dir == "asc" else sort_attr.desc())
 
     # Count and paginate
     skip = (filters.page - 1) * filters.page_size
-    total = query.count()
     items = query.offset(skip).limit(filters.page_size).all()
     # Pagination
     return {
@@ -1157,6 +1283,7 @@ def get_order_details(db: Session, order_id: int) -> Order:
                 joinedload(Order.delivery_detail),
                 joinedload(Order.status_logs),
                 joinedload(Order.action_logs),
+                joinedload(Order.cart).joinedload(Cart.items),
             )
             .filter(Order.id == order_id)
             .one()
@@ -1164,3 +1291,78 @@ def get_order_details(db: Session, order_id: int) -> Order:
         return order
     except ValueError:
         raise ValueError("Order not found.")
+    
+def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user: User):
+    """
+    Create invoice(s) for given order or for all eligible completed/confirmed orders for the current user's business.
+    Return the created invoice/order information or raise errors if invalid.
+    """
+
+    def create_invoice_for_order(order: Order):
+        # Initialize business_contact as None
+        business_contact = None
+
+        # If a business_contact_id is set, try to fetch it
+        if order.business_contact_id:
+            business_contact = db.query(BusinessContact).filter(
+                BusinessContact.id == order.business_contact_id,
+                BusinessContact.business_id == order.business_id,
+            ).first()
+
+        # Generate invoice details
+        order.invoice_number = generate_invoice_id()
+        order.invoice_url = generate_invoice(
+            order,
+            business=order.business,
+            business_contact=business_contact  # can be None
+        )
+
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    if is_all_order:
+        orders = db.query(Order).options(
+                joinedload(Order.payments),
+                joinedload(Order.delivery_detail),
+                joinedload(Order.cart).joinedload(Cart.items),
+            ).filter(
+            Order.business_id == current_user.business_id,
+            Order.order_status.in_([CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]),
+            Order.invoice_number.is_(None),
+            Order.invoice_url.is_(None),
+        ).all()
+
+        if not orders:
+            raise ValueError("No completed or confirmed orders found for invoice creation.")
+
+        created_orders = []
+        for order in orders:
+            try:
+                created_order = create_invoice_for_order(order)
+                created_orders.append(created_order)
+            except ValueError as e:
+                # Log error per order but do not stop the batch
+                print(f"Error creating invoice for Order ID {order.id}: {str(e)}")
+            except Exception as e:
+                print(f"Unexpected error for Order ID {order.id}: {str(e)}")
+        return created_orders
+
+    else:
+        order = db.query(Order).options(
+                joinedload(Order.payments),
+                joinedload(Order.delivery_detail),
+                joinedload(Order.cart).joinedload(Cart.items),
+            ).filter(Order.id == order_id).first()
+        if not order:
+            raise ValueError(f"Order with ID {order_id} not found.")
+
+        # Check that the order belongs to the current user's business for security
+        if order.business_id != current_user.business_id:
+            raise ValueError("Order does not belong to your business.")
+
+        if order.order_status not in [CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]:
+            raise ValueError("Invoice can only be created for completed or confirmed orders.")
+
+        return create_invoice_for_order(order)

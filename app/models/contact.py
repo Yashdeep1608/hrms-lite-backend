@@ -20,7 +20,7 @@ class Contact(Base):
     isd_code = Column(String,nullable=True)
     phone_number = Column(String, index=True)
     email = Column(String, nullable=True)
-
+    
     country_code=Column(String,nullable=True)
     gender=Column(String,nullable=True)
     preferred_language = Column(String,default='en')
@@ -48,6 +48,13 @@ class BusinessContact(Base):
     sponsor_id = Column(UUID(as_uuid=True), ForeignKey("business_contacts.id"), nullable=True)
 
     managed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    address_line1 = Column(String,nullable=True)
+    address_line2 = Column(String,nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    postal_code = Column(String,nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),

@@ -24,6 +24,14 @@ class Business(Base):
     image_url = Column(String,nullable= True)
     favicon = Column(String,nullable = True)
 
+    isd_code = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+    notes = Column(String, nullable=True)
+    term_conditions = Column(String, nullable=True)
+    privacy_policy = Column(String, nullable=True)
+    
     is_active = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
 

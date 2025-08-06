@@ -146,10 +146,10 @@ def assign_cart_contact(payload:AssignCartContact, request: Request, db: Session
         )
  
 @router.post("/checkout/{cart_id}/{additional_discount}")
-def checkout_order(cart_id: int, additional_discount:float, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def checkout_order(cart_id: int, request: Request,additional_discount:Optional[float] = 0, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        data = crud_order.checkout_order(db, cart_id, additional_discount)
+        data = crud_order.checkout_order(db, cart_id, additional_discount,current_user)
         return ResponseHandler.success(message=translator.t("order_checked_out", lang), data=jsonable_encoder(data))
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
@@ -163,7 +163,7 @@ def checkout_order(cart_id: int, additional_discount:float, request: Request, db
 def pay_now(payload_list: List[PayNowRequest], request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        data = crud_order.pay_now(db, payload_list)
+        data = crud_order.pay_now(db, payload_list,current_user)
         return ResponseHandler.success(message=translator.t("payment_successful", lang), data=jsonable_encoder(data))
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
@@ -177,7 +177,7 @@ def pay_now(payload_list: List[PayNowRequest], request: Request, db: Session = D
 def place_order(payload: PlaceOrderRequest, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        data = crud_order.place_order(db, payload)
+        data = crud_order.place_order(db, payload,current_user)
         return ResponseHandler.success(message=translator.t("order_placed", lang), data=jsonable_encoder(data))
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
@@ -201,7 +201,7 @@ def update_order_status_manually(payload: OrderStatusUpdateRequest, request: Req
             error=str(e)
         )
 
-@router.post("/get-orders")
+@router.post("/get-order-list")
 def get_orders(payload:OrderListFilters,request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
@@ -221,6 +221,20 @@ def get_order_details(order_id:int,request: Request, db: Session = Depends(get_d
     try:
         data = crud_order.get_order_details(db,order_id=order_id)
         return ResponseHandler.success(message=translator.t("order_statuses_retrieved", lang), data=jsonable_encoder(data))
+    except ValueError as e:
+        return ResponseHandler.bad_request(message=str(e))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.post("/create-invoices/{order_id}/{is_all_order}")
+def create_invoices(request: Request, order_id:Optional[int] = None, is_all_order:Optional[bool] = False ,db: Session = Depends(get_db),current_user = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_order.create_invoices(db,order_id,is_all_order,current_user)
+        return ResponseHandler.success(message=translator.t("created_successfully", lang), data=jsonable_encoder(data))
     except ValueError as e:
         return ResponseHandler.bad_request(message=str(e))
     except Exception as e:

@@ -2,10 +2,9 @@ from io import BytesIO
 import mimetypes
 import barcode
 from barcode.writer import ImageWriter
-from fastapi import Request, UploadFile
+from fastapi import Request
 from datetime import datetime, timedelta, timezone
 from slugify import slugify
-from starlette.datastructures import UploadFile as StarletteUploadFile
 import qrcode
 
 from app.helpers.s3 import upload_file_to_s3

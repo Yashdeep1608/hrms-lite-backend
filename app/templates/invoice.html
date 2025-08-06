@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 12px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        border: 1px solid #000;
+        padding: 5px;
+        text-align: left;
+      }
+      .header {
+        text-align: center;
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      .flex-between {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border-bottom: 2px solid #000;
+        padding-bottom: 15px;
+        margin-bottom: 15px;
+        width: 100%;
+      }
+      .business-info {
+        width: 30%;
+      }
+      .logo-container {
+        width: 80%;
+        display: flex;
+        justify-content: flex-end;
+        margin-left: 20px;
+      }
+      .logo-img {
+        width: 30%;
+      }
+      .section-divider {
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+        font-size: 12px;
+      }
+      .flex-space-between {
+        display: flex;
+        justify-content: space-between;
+      }
+      .customer-info p,
+      .customer-info div {
+        margin: 0;
+        font-size: 12px;
+      }
+      .invoice-info h3,
+      .billing-address h3,
+      .item-details h3,
+      .payment-details h3 {
+        margin: 0 0 6px 0;
+      }
+      .summary-table-container {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .summary-table {
+        width: 35%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .text-right {
+        text-align: right;
+      }
+      .border-top {
+        border-top: 1px solid #000;
+      }
+      .payment-details-table th,
+      .payment-details-table td {
+        border: 1px solid #ccc;
+        padding: 6px;
+      }
+      .uppercase {
+        text-transform: uppercase;
+      }
+      .signature-section {
+        margin-top: 50px;
+        font-size: 12px;
+      }
+      .signature-right {
+        text-align: right;
+      }
+      .signature-bottom {
+        margin-bottom: 40px;
+      }
+      .signature-top {
+        margin-top: 0;
+      }
+      .mt-10 {
+        margin-top: 10px;
+      }
+      .mb-8 {
+        margin-bottom: 8px;
+      }
+      .mb-15 {
+        margin-bottom: 15px;
+      }
+      .mb-40 {
+        margin-bottom: 40px;
+      }
+      .ml-20 {
+        margin-left: 20px;
+      }
+      .no-margin {
+        margin: 0;
+      }
+      .no-padding {
+        padding: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">TAX INVOICE</div>
+    <div class="flex-between">
+      <!-- Left: Business Info -->
+      <div class="business-info">
+        <h1 class="no-margin" style="font-size: 20px">{{ business.business_name }}</h1>
+        {% if business.gst_number or business.pan_number %}
+        <p style="margin: 4px 0 6px 0; font-size: 12px">
+          {% if business.gst_number %}GSTIN: {{ business.gst_number }}<br />{% endif %}
+          {% if business.pan_number %}PAN: {{ business.pan_number }}{% endif %}
+        </p>
+        {% endif %}
+        <p class="no-margin">
+          {{ business.address_line1 }}{% if business.address_line2 %}, {{ business.address_line2 }}{% endif %}<br />
+          {{ business.city }}, {{ business.state }} - {{ business.postal_code }}<br />
+          {{ business.country }}
+        </p>
+        {% if business.phone_number or business.email or business.website %}
+        <p style="margin-top: 6px; font-size: 12px">
+          {% if business.phone_number %} Ph: +{{ business.isd_code }} {{ business.phone_number }}<br />{% endif %}
+          {% if business.email %} Email: {{ business.email }}<br />{% endif %}
+          {% if business.website %} Website: {{ business.website }}{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <!-- Right: Logo -->
+      {% if business.image_url %}
+      <div class="logo-container">
+        <img src="{{ business.image_url }}" alt="Business Logo" class="logo-img" />
+      </div>
+      {% endif %}
+    </div>
+    <br />
+    <div class="section-divider">
+      <div class="flex-space-between">
+        <!-- Left: Customer Details -->
+        <div class="customer-info">
+          {% if business_contact %}
+            {% set full_name = (business_contact.first_name or '') + ' ' + (business_contact.last_name or '') %}
+            {% if full_name.strip() %}
+              <div><strong>Name:</strong> {{ full_name.strip() }}</div>
+            {% endif %}
+            {% if business_contact.contact and business_contact.contact.phone_number %}
+              <div>
+                <strong>Phone:</strong> +{{ business_contact.contact.isd_code or '' }} {{ business_contact.contact.phone_number }}
+              </div>
+            {% endif %}
+            {% if business_contact.contact and business_contact.contact.email %}
+              <div>
+                <strong>Email:</strong> {{ business_contact.contact.email }}
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
+        <!-- Right: Invoice Info -->
+        <div class="invoice-info">
+          <h3>Invoice Info</h3>
+          <div><strong>Invoice #:</strong> {{ order.invoice_number }}</div>
+          <div>
+            <strong>Date:</strong> {{ order.updated_at.strftime('%d  %b  %Y') }}
+          </div>
+        </div>
+      </div>
+      <div class="billing-address">
+        <h3>Billing Address</h3>
+        {% if order.delivery_detail %}
+        <p class="no-margin">
+          {{ order.delivery_detail.address_line1 }}{% if order.delivery_detail.address_line2 %}, {{ order.delivery_detail.address_line2 }}{% endif %}<br />
+          {{ order.delivery_detail.city }}, {{ order.delivery_detail.state }} - {{ order.delivery_detail.postal_code }}<br />
+          {{ order.delivery_detail.country }}
+        </p>
+        {% else %}
+        <p class="no-margin">
+          {{ business.address_line1 }}{% if business.address_line2 %}, {{ business.address_line2 }}{% endif %}<br />
+          {{ business.city }}, {{ business.state }} - {{ business.postal_code }}<br />
+          {{ business.country }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+    <h3 class="mb-8">Item Details</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Item</th>
+          <th>Type</th>
+          <th>Qty</th>
+          <th>Unit Price</th>
+          <th>Discount</th>
+          <th>Tax</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in order.cart.items %}
+          {% set qty = item.quantity or 1 %}
+          {% set unit_price = (item.actual_price / qty) | round(2) %}
+          {% set discount = (item.discount_price / qty) | round(2) %}
+          {% set tax = (item.tax_amount / qty) | round(2) if item.tax_amount else 0 %}
+          {% set total = item.final_price | round(2) %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.item_type.title() }}</td>
+            <td>{{ qty }}</td>
+            <td>₹{{ '%.2f' % unit_price }}</td>
+            <td>₹{{ '%.2f' % discount }}</td>
+            <td>₹{{ '%.2f' % tax }}</td>
+            <td>₹{{ '%.2f' % total }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="summary-table-container">
+      <table class="summary-table">
+        <tbody>
+          {% set totals = namespace(discount=0) %}
+          {% for item in order.cart.items %}
+            {% set qty = item.quantity or 1 %}
+            {% set unit_price = (item.actual_price / qty) | round(2) %}
+            {% set discount = (item.discount_price / qty) | round(2) %}
+            {% set tax = (item.tax_amount / qty) | round(2) if item.tax_amount else 0 %}
+            {% set total = item.final_price | round(2) %}
+            {% set totals.discount = totals.discount + item.discount_price %}
+          {% endfor %}
+          <tr>
+            <td>Subtotal:</td>
+            <td class="text-right">₹{{ '%.2f' % order.subtotal }}</td>
+          </tr>
+          <tr>
+            <td>Item Discount:</td>
+            <td class="text-right">- ₹{{ '%.2f' % totals.discount }}</td>
+          </tr>
+          {% if order.coupon_discount %}
+          <tr>
+            <td>Coupon Discount:</td>
+            <td class="text-right">- ₹{{ '%.2f' % order.coupon_discount }}</td>
+          </tr>
+          {% endif %}
+          {% if order.offer_discount %}
+          <tr>
+            <td>Offer Discount:</td>
+            <td class="text-right">- ₹{{ '%.2f' % order.offer_discount }}</td>
+          </tr>
+          {% endif %}
+          {% if order.additional_discount %}
+          <tr>
+            <td>Additional Discount:</td>
+            <td class="text-right">- ₹{{ '%.2f' % order.additional_discount }}</td>
+          </tr>
+          {% endif %}
+          {% if order.delivery_fee %}
+          <tr>
+            <td>Delivery Fee:</td>
+            <td class="text-right">₹{{ '%.2f' % order.delivery_fee }}</td>
+          </tr>
+          {% endif %}
+          {% if order.handling_fee %}
+          <tr>
+            <td>Handling Fee:</td>
+            <td class="text-right">₹{{ '%.2f' % order.handling_fee }}</td>
+          </tr>
+          {% endif %}
+          {% if order.tax_total %}
+          <tr>
+            <td>Tax Total:</td>
+            <td class="text-right">₹{{ '%.2f' % order.tax_total }}</td>
+          </tr>
+          {% endif %}
+          <tr class="border-top">
+            <td><strong>Total:</strong></td>
+            <td class="text-right"><strong>₹{{ '%.2f' % order.total_amount }}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% if order.payments and order.payments|length > 0 %}
+    <div class="payment-details mt-10">
+      <h3 class="mb-8">Payment Details</h3>
+      <table class="payment-details-table">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Status</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payment in order.payments %}
+          <tr>
+            <td class="uppercase">{{ payment.payment_method.value or '-' }}</td>
+            <td class="uppercase">{{ payment.payment_status.value or '-' }}</td>
+            <td>₹{{ '%.2f' % payment.amount }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    <div class="signature-section">
+      <div class="signature-right">
+        <p class="signature-bottom">For {{ business.business_name }}</p>
+        <p class="signature-top">Authorized Signatory</p>
+      </div>
+    </div>
+  </body>
+</html>
