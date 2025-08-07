@@ -31,9 +31,9 @@ from sqlalchemy.orm import joinedload
 from app.schemas.contact import ContactCreate
 from app.schemas.order import OrderListFilters, OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
 
-def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
+def calculate_cart_prices(db:Session,item, quantity: int = 1, item_type: str = "product"):
     quantity = max(quantity, 1)
-
+    tax_percentage = 0
     # Helper function to calculate prices given base price and discount info
     def _calc_prices(
         base_price,
@@ -77,7 +77,8 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         max_discount = getattr(item, "max_discount", None)
         include_tax = getattr(item, "include_tax", False)
         tax_rate = getattr(item, "tax_rate", None)
-
+        if tax_rate is not None:
+            tax_percentage = Decimal(tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         actual_price, discount_price, tax_amount, final_price = _calc_prices(
             selling_price, discount_type, discount_value, max_discount, include_tax, tax_rate
         )
@@ -91,7 +92,8 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         max_discount = getattr(item, "max_discount", None)
         include_tax = getattr(item, "include_tax", False)
         tax_rate = getattr(item, "tax_rate", None)
-
+        if tax_rate is not None:
+            tax_percentage = Decimal(tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         actual_price, discount_price, tax_amount, final_price = _calc_prices(
             base_price, discount_type, discount_value, max_discount, include_tax, tax_rate
         )
@@ -104,10 +106,30 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
         discount_type = getattr(item, "discount_type", None)
         discount_value = getattr(item, "discount_value", None)
         max_discount = getattr(item, "max_discount", None)
+        combo_items = getattr(item, "items", [])
+        tax_percentages = []
+        for combo_item in combo_items:
+            # Get the item (product or service) and its type
+            item_type = combo_item.item_type
+            item_id = combo_item.item_id
+            
+            # Retrieve the product or service based on item_type and item_id
+            if item_type == "product":
+                product = db.query(Product).filter(Product.id == item_id).first()
+                if product and product.tax_rate:
+                    tax_percentages.append(Decimal(product.tax_rate))
+            elif item_type == "service":
+                service = db.query(Service).filter(Service.id == item_id).first()
+                if service and service.tax_rate:
+                    tax_percentages.append(Decimal(service.tax_rate))
 
-        # Tax fields are missing/not defined for combos; assuming no tax
+        # If we found tax rates, calculate the average tax rate
+        if tax_percentages:
+            tax_percentage = sum(tax_percentages) / len(tax_percentages)
+            tax_percentage = tax_percentage.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         actual_price, discount_price, tax_amount, final_price = _calc_prices(
-            combo_price, discount_type, discount_value, max_discount, include_tax=False, tax_rate=None
+            combo_price, discount_type, discount_value, max_discount, include_tax=True, tax_rate=tax_percentage
         )
 
     else:
@@ -119,7 +141,7 @@ def calculate_cart_prices(item, quantity: int = 1, item_type: str = "product"):
     tax_amount_total  = (tax_amount  * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     final_price_total = (final_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    return actual_price_total, discount_price_total, tax_amount_total, final_price_total
+    return actual_price_total, discount_price_total, tax_amount_total, final_price_total,tax_percentage
 def generate_order_number(business_id: int) -> str:
     timestamp_ms = int(time.time() * 1000)
     business_part = hex(business_id)[2:].upper()  # remove '0x' and uppercase
@@ -431,7 +453,7 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
         else:
             quantity = 1  # Only 1 allowed for service/combo
 
-        actual_price, discount_price, tax_amount, final_price = calculate_cart_prices(item, quantity, item_type=item_type)
+        actual_price, discount_price, tax_amount, final_price,tax_percentage = calculate_cart_prices(db,item, quantity, item_type=item_type)
 
         cart_item = CartItem(
             cart_id=cart.id,
@@ -442,6 +464,7 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
             actual_price=actual_price,
             discount_price=discount_price,
             tax_amount = tax_amount,
+            tax_percentage = tax_percentage,
             final_price=final_price,
             time_slot=payload.time_slot or None,
             start_date=payload.start_date or None,
@@ -496,13 +519,14 @@ def update_cart_item(db: Session, cart_item_id: int, quantity: int):
             raise ValueError("Requested quantity exceeds available stock")
 
     # Always re-calculate prices
-    actual_price, discount_price, tax_amount,final_price = calculate_cart_prices(item, quantity, item_type=cart_item.item_type)
+    actual_price, discount_price, tax_amount,final_price,tax_percentage = calculate_cart_prices(db,item, quantity, item_type=cart_item.item_type)
 
     # Update cart item
     cart_item.quantity = quantity
     cart_item.actual_price = actual_price
     cart_item.discount_price = discount_price
     cart_item.tax_amount = tax_amount
+    cart_item.tax_percentage = tax_percentage
     cart_item.final_price = final_price
 
     db.commit()
@@ -965,7 +989,7 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, cur
         # Step 4: Calculate amounts
         subtotal = sum(Decimal(str(item.actual_price))  for item in cart_items)
         tax_total = sum(Decimal(str(item.tax_amount or 0)) for item in cart_items)
-
+        item_discounts = sum(Decimal(str(item.discount_price or 0)) for item in cart_items)
         delivery_fee = Decimal("0.0")  # Placeholder for dynamic logic
         handling_fee = Decimal("0.0")  # Placeholder for dynamic logic
 
@@ -974,6 +998,7 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, cur
         order.coupon_discount = Decimal(str(cart.coupon_discount or 0.0))
         order.offer_discount = Decimal(str(cart.offer_discount or 0.0))
         order.additional_discount = Decimal(str(additional_discount or 0.0))
+        order.item_discount = item_discounts
         order.delivery_fee = delivery_fee
         order.handling_fee = handling_fee
         order.tax_total = tax_total

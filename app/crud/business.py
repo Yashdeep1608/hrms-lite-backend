@@ -54,6 +54,10 @@ def create_business(db: Session, data: BusinessCreate) -> Business:
         state=data.state,
         country=data.country,
         postal_code=data.postal_code,
+        isd_code=data.isd_code,
+        phone_number=data.phone_number,
+        email=data.email,
+        website=data.website,
         is_active=True,
         is_deleted=False,
     )

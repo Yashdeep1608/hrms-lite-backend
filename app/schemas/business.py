@@ -20,6 +20,10 @@ class BusinessCreate(BaseModel):
     state:str
     country:str
     postal_code:str
+    isd_code: str
+    phone_number: str
+    website: Optional[str] = None
+    email: str
 
 class BusinessUpdate(BaseModel):
     business_name: Optional[str] = None
@@ -39,7 +43,11 @@ class BusinessUpdate(BaseModel):
     is_deleted: Optional[bool] = None
     image_url:Optional[str] = None
     favicon:Optional[str] = None
-
+    email: Optional[EmailStr] = None
+    isd_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    website: Optional[str] = None
+    
     model_config = ConfigDict(from_attributes=True, ser_json_timedelta="iso8601")
 
 class BusinessOut(BaseModel):
