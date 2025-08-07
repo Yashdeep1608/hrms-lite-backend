@@ -1,15 +1,15 @@
-import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
+from tempfile import NamedTemporaryFile
 import time
 from decimal import ROUND_HALF_UP, Decimal
 import uuid
-from fastapi import UploadFile
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import UUID, DateTime, func, or_
+from sqlalchemy import UUID, func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import List
 from app.crud.contact import create_contact
 from app.crud.product import add_product_stock_log
 from app.helpers.s3 import upload_file_to_s3
@@ -19,17 +19,16 @@ from app.models.business import Business
 from app.models.combo import Combo
 from app.models.contact import BusinessContact, BusinessContactLedger, Contact
 from app.models.coupon import Coupon
-from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, ConditionOperator, OfferConditionType, OfferType, OrderPaymentMethod, OrderPaymentStatus, RoleTypeEnum
-from app.models.offer import Offer, OfferCondition
+from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, OrderPaymentMethod, OrderPaymentStatus, RoleTypeEnum
 from app.models.order import Order, OrderActionLog, OrderDeliveryDetail, OrderPayment, OrderStatusLog
 from app.models.product import Product
 from app.models.service import Service, ServiceBookingLog
 from app.models.user import User
 from app.schemas.cart import AddToCart, AssignCartContact, CartEntities
-from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from app.schemas.contact import ContactCreate
 from app.schemas.order import OrderListFilters, OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
+from playwright.sync_api import sync_playwright
 
 def calculate_cart_prices(db:Session,item, quantity: int = 1, item_type: str = "product"):
     quantity = max(quantity, 1)
@@ -155,8 +154,8 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
     required_product_qty = defaultdict(int)
     required_service_qty = []
 
-    def get_effective_start_date(item):
-        return item.start_date or datetime.now(timezone.utc)
+    def get_effective_date(item):
+        return item.date or datetime.now(timezone.utc)
 
     # First pass: calculate total needed to validate
     for item in cart.items:
@@ -164,7 +163,7 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
             required_product_qty[item.item_id] += item.quantity
 
         elif item.item_type == "service":
-            required_service_qty.append((item, get_effective_start_date(item)))
+            required_service_qty.append((item, get_effective_date(item)))
 
         elif item.item_type == "combo":
             combo = db.query(Combo).filter(Combo.id == item.item_id).first()
@@ -176,14 +175,14 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
                     required_product_qty[combo_item.item_id] += combo_item.quantity * item.quantity
                 elif combo_item.item_type == "service":
                     req_qty = combo_item.quantity * item.quantity
-                    # Collect service item and qty with start_date for capacity check later
+                    # Collect service item and qty with date for capacity check later
                     # Create a fake item object with quantity and start date for uniformity
                     fake_item = type('FakeItem', (), {
                         'item_id': combo_item.item_id, 
                         'quantity': req_qty, 
-                        'start_date': get_effective_start_date(item)
+                        'date': get_effective_date(item)
                     })()
-                    required_service_qty.append((fake_item, fake_item.start_date))
+                    required_service_qty.append((fake_item, fake_item.date))
 
     # 2. Validate product stocks all at once
     for product_id, total_qty in required_product_qty.items():
@@ -196,7 +195,7 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
             raise ValueError(f"Insufficient stock for product: {product.name}")
 
     # 3. Validate service capacities
-    for item, start_date in required_service_qty:
+    for item, date in required_service_qty:
         service = db.query(Service).filter(Service.id == item.item_id).first()
         if not service:
             raise ValueError(f"Service {item.item_id} not found")
@@ -204,10 +203,10 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
         if service.capacity is not None:
             total_booked = db.query(func.coalesce(func.sum(ServiceBookingLog.quantity), 0)).filter(
                 ServiceBookingLog.service_id == item.item_id,
-                ServiceBookingLog.start_date == start_date
+                ServiceBookingLog.date == date
             ).scalar()
             if total_booked + item.quantity > service.capacity:
-                raise ValueError(f"Insufficient capacity for service: {service.name} on {start_date.date()}")
+                raise ValueError(f"Insufficient capacity for service: {service.name} on {date.date()}")
 
     # 4. Validate coupon usage (existing logic)
     if cart.coupon_id:
@@ -224,36 +223,42 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
     def reduce_product_stock(product_id: int, quantity: int):
         product = db.query(Product).filter(Product.id == product_id).first()
         if product.stock_qty is None:
-            return  # skip untracked stock
-        product.stock_qty -= quantity
+            return
+
+        stock_before = product.stock_qty
+        stock_after = stock_before - quantity
+        product.stock_qty = stock_after
+
         add_product_stock_log(
             db=db,
             product_id=product.id,
             quantity=quantity,
             is_stock_in=False,
+            stock_before=stock_before,
+            stock_after=stock_after,
             source="order",
             source_id=order_id,
             created_by=cart.created_by_user_id
         )
 
-    def log_service_booking(service_id: int, quantity: int, start_date, in_combo=False):
+    def log_service_booking(service_id: int, quantity: int, date, in_combo=False):
         booking_log = ServiceBookingLog(
             service_id=service_id,
             order_id=order_id,
             business_contact_id=cart.business_contact_id,
-            start_date=start_date,
+            date=date,
             quantity=quantity
         )
         db.add(booking_log)
 
     for item in cart.items:
-        start_date = get_effective_start_date(item)
+        date = get_effective_date(item)
 
         if item.item_type == "product":
             reduce_product_stock(item.item_id, item.quantity)
 
         elif item.item_type == "service":
-            log_service_booking(item.item_id, item.quantity, start_date)
+            log_service_booking(item.item_id, item.quantity, date)
 
         elif item.item_type == "combo":
             combo = db.query(Combo).filter(Combo.id == item.item_id).first()
@@ -262,7 +267,7 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
                 if combo_item.item_type == "product":
                     reduce_product_stock(combo_item.item_id, combo_qty)
                 elif combo_item.item_type == "service":
-                    log_service_booking(combo_item.item_id, combo_qty, start_date, in_combo=True)
+                    log_service_booking(combo_item.item_id, combo_qty, date, in_combo=True)
 
     # 6. Update coupon usage counts (if any)
     if cart.coupon_id:
@@ -281,7 +286,7 @@ def generate_transaction_id():
     return f"TXN-{short_id}"
 def generate_invoice(order, business, business_contact):
     try:
-        # 1. Load HTML Template
+        # 1. Render the HTML using Jinja
         env = Environment(loader=FileSystemLoader('app/templates'))
         template = env.get_template("invoice.html")
         html_out = template.render(
@@ -290,25 +295,36 @@ def generate_invoice(order, business, business_contact):
             business_contact=business_contact
         )
 
-        # # 2. Render PDF from HTML string
-        # pdf_io = BytesIO()
-        # HTML(string=html_out).write_pdf(pdf_io)
-        # pdf_io.seek(0)
+        # 2. Generate PDF with Playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
 
-        # 3. Wrap in UploadFile
+            # Load the HTML content
+            page.set_content(html_out, wait_until="load")
+
+            # Generate PDF to a temporary file
+            with NamedTemporaryFile(suffix=".pdf", delete=False) as temp_pdf:
+                page.pdf(path=temp_pdf.name, format="A4", print_background=True)
+                pdf_path = temp_pdf.name
+
+            browser.close()
+
+        # 3. Wrap the PDF into UploadFile (or SimpleUploadFile)
         filename = f"{order.invoice_number}.pdf"
-        upload_file = SimpleUploadFile(
-            filename=filename,
-            file='application/pdf',
-            content_type="application/pdf"
-        )
+        with open(pdf_path, "rb") as f:
+            file_bytes = f.read()
+            upload_file = SimpleUploadFile(
+                filename=filename,
+                file=BytesIO(file_bytes),
+                content_type="application/pdf"
+            )
 
         # 4. Upload to S3
         return upload_file_to_s3(upload_file, folder="invoices")
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        # Handle/log error
         raise Exception(f"Failed to generate invoice: {str(e)}")
 
 def get_entities(db: Session, payload: CartEntities, current_user: User):
@@ -466,9 +482,7 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
             tax_amount = tax_amount,
             tax_percentage = tax_percentage,
             final_price=final_price,
-            time_slot=payload.time_slot or None,
-            start_date=payload.start_date or None,
-            day=payload.day or None,
+            date=payload.date or None,
         )
         db.add(cart_item)
         db.commit()
@@ -803,7 +817,7 @@ def assign_cart_contact(db: Session, payload: AssignCartContact, current_user: U
 
 #             query = query.filter(
 #                 and_(
-#                     OfferCondition.value["start_datetime"].astext.cast(DateTime) <= now,
+#                     OfferCondition.value["datetime"].astext.cast(DateTime) <= now,
 #                     OfferCondition.value["end_datetime"].astext.cast(DateTime) >= now,
 #                 )
 #             )
@@ -917,7 +931,7 @@ def assign_cart_contact(db: Session, payload: AssignCartContact, current_user: U
 
 #     # === 9. Time Limited: Time Window ===
 #     if offer_type == OfferType.TIME_LIMITED and condition_type == OfferConditionType.TIME_WINDOW:
-#         start = parse_datetime(value.get("start_datetime"))
+#         start = parse_datetime(value.get("datetime"))
 #         end = parse_datetime(value.get("end_datetime"))
 #         return start <= now <= end
 
@@ -1016,16 +1030,21 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, cur
         # Step 6: Save the order
         if is_new_order:
             db.add(order)
-        log_order_status_change(
-            db=db,
-            order=order,
-            from_status=None,  # No previous status for new order
-            to_status=CartOrderStatus.PENDING,
-            current_user=current_user,  # No user context for backend order creation
-            note_text="Order created from cart checkout"
-        )
-        db.commit()
-        db.refresh(order)
+            db.flush()       # assign ID without commit
+            db.refresh(order)
+
+            log_order_status_change(
+                db=db,
+                order=order,
+                from_status=None,  # No previous status for new order
+                to_status=CartOrderStatus.PENDING,
+                current_user=current_user,  # No user context for backend order creation
+                note_text="Order created from cart checkout"
+            )
+            db.commit()
+            # Refresh order again to make sure session state is updated
+            db.refresh(order)
+            return order
         return order
     except ValueError as ve:
         db.rollback()
@@ -1167,7 +1186,7 @@ def place_order(db: Session,payload: PlaceOrderRequest, current_user: User = Non
     except ValueError as ve:
         payments = db.query(OrderPayment).filter(OrderPayment.order_id == payload.order_id).all()
         for payment in payments:
-            payment.payment_status = OrderPaymentStatus.REFUNDED
+            payment.payment_status = OrderPaymentStatus.FAILED
         order = db.query(Order).filter(Order.id == payload.order_id).first()
         old_status = order.order_status
         order.order_status = CartOrderStatus.CANCELLED
@@ -1179,11 +1198,26 @@ def place_order(db: Session,payload: PlaceOrderRequest, current_user: User = Non
             current_user=current_user,  # No user context for backend order creation
             note_text=f"Order is cancelled due to error: {str(ve)}"
         )
-        db.commit()
         db.rollback()
+        db.commit()
         raise ValueError(str(ve))
     except Exception as e:
+        payments = db.query(OrderPayment).filter(OrderPayment.order_id == payload.order_id).all()
+        for payment in payments:
+            payment.payment_status = OrderPaymentStatus.FAILED
+        order = db.query(Order).filter(Order.id == payload.order_id).first()
+        old_status = order.order_status
+        order.order_status = CartOrderStatus.CANCELLED
+        log_order_status_change(
+            db=db,
+            order=order,
+            from_status=old_status,  # No previous status for new order
+            to_status=CartOrderStatus.CANCELLED,
+            current_user=current_user,  # No user context for backend order creation
+            note_text=f"Order is cancelled due to error: {str(ve)}"
+        )
         db.rollback()
+        db.commit()
         raise Exception(str(e))  # Optional: convert to HTTPException if needed
     
 def log_order_status_change(
@@ -1374,9 +1408,12 @@ def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user
                 joinedload(Order.payments),
                 joinedload(Order.delivery_detail),
                 joinedload(Order.cart).joinedload(Cart.items),
-            ).filter(Order.id == order_id).first()
+            ).filter(Order.id == order_id,
+                     Order.order_status.in_([CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]),
+            Order.invoice_number.is_(None),
+            Order.invoice_url.is_(None)).first()
         if not order:
-            raise ValueError(f"Order with ID {order_id} not found.")
+            raise ValueError(f"Order with ID {order_id} not available for invoice")
 
         # Check that the order belongs to the current user's business for security
         if order.business_id != current_user.business_id:

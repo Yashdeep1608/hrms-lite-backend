@@ -114,9 +114,13 @@ def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
         return "invalid_or_used_otp"
 
     # Ensure timezone awareness
-    created_at = otp_entry.created_at.replace(tzinfo=timezone.utc) if otp_entry.created_at.tzinfo is None else otp_entry.created_at
+    created_at = otp_entry.created_at
+    if created_at.tzinfo is None or created_at.tzinfo.utcoffset(created_at) is None:
+        # Assuming stored time is UTC but naive, attach timezone
+        created_at = created_at.replace(tzinfo=timezone.utc)
 
     if datetime.now(timezone.utc) > created_at + timedelta(minutes=10):
+        # return str(datetime.now(timezone.utc)) + str( created_at + timedelta(minutes=10))
         return "otp_expired"
 
     otp_entry.is_verified = True

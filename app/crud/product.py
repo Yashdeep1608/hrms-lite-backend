@@ -501,26 +501,26 @@ def add_product_stock_log(
     product_id: int,
     quantity: float,
     is_stock_in: bool,
+    stock_before: Optional[float] = None,
+    stock_after: Optional[float] = None,
     source: Optional[str] = None,
     source_id: Optional[int] = None,
     created_by: Optional[int] = None,
 ) -> None:
-    # Fetch current stock (assuming Product has a `stock` field)
-    product = db.query(Product).filter(Product.id == product_id).first()
-    
-    if not product:
-        raise ValueError(f"Product with ID {product_id} not found")
+    # Only fetch product if stock_before not passed
+    if stock_before is None or stock_after is None:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise ValueError(f"Product with ID {product_id} not found")
+        stock_before = product.stock_qty or 0
+        stock_after = stock_before + quantity if is_stock_in else stock_before - quantity
 
-    stock_before = product.stock_qty or 0
-    stock_after = stock_before + quantity if is_stock_in else stock_before - quantity
-
-    # Generate default internal note
+    # Generate note
     direction = "Stock-In" if is_stock_in else "Stock-Out"
     source_str = f" via {source.upper()}" if source else ""
     ref_str = f" (Ref ID: {source_id})" if source_id else ""
     note = f"{direction} of {quantity} units{source_str}{ref_str}"
 
-    # Create log entry
     log = ProductStockLog(
         product_id=product_id,
         quantity=quantity,
@@ -533,7 +533,3 @@ def add_product_stock_log(
         created_by=created_by,
     )
     db.add(log)
-
-    # Update product stock directly
-    product.stock = stock_after
-    db.commit()

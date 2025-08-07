@@ -45,8 +45,6 @@ def get_service_details(service_id: int,request:Request, db: Session = Depends(g
     lang = get_lang_from_request(request)
     try:
         service = crud_service.get_service_details(db, service_id)
-        if not service:
-            raise ResponseHandler.not_found(message=translator.t("service_not_found", lang))
         return ResponseHandler.success(data=jsonable_encoder(service))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
@@ -56,8 +54,6 @@ def get_service_list(filters: ServiceFilter,request: Request,db: Session = Depen
     lang = get_lang_from_request(request)
     try:
         total, items = crud_service.get_service_list(db, filters,current_user)
-        if not items:
-            return ResponseHandler.not_found(message=translator.t("services_not_found", lang))
         return ResponseHandler.success(data={"total": total, "items": jsonable_encoder(items)})  # type: ignore
     except Exception as e:
         return ResponseHandler.bad_request(

@@ -10,7 +10,7 @@ from app.db.base import Base
 class Plan(Base):
     __tablename__ = "plans"
 
-    id = Column(Integer, primary_key=True, default=uuid.uuid4)
+    id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
     description = Column(String, nullable=True)
     

@@ -36,7 +36,7 @@ def create_order(db: Session, order: CreateOrder):
 
             offer_discount = plan.offer_discount or 0.0
             total_price = plan.price
-            subtotal = offer_discount - coupon_discount
+            subtotal = total_price - offer_discount - coupon_discount
         
         # Coupon logic
         if order.coupon_code:
@@ -57,9 +57,9 @@ def create_order(db: Session, order: CreateOrder):
             coupon_discount = min(coupon_discount, subtotal)
             subtotal -= coupon_discount
 
-        gst_percent = 18.0
-        gst_amount = round(subtotal * gst_percent / 100, 2)
-        final_amount = subtotal + gst_amount
+        # gst_percent = 18.0
+        # gst_amount = round(subtotal * gst_percent / 100, 2)
+        final_amount = subtotal
 
         return {
             "user_id": order.user_id,
@@ -67,8 +67,8 @@ def create_order(db: Session, order: CreateOrder):
             "total": total_price,
             "offer_discount": offer_discount,
             "coupon_discount": coupon_discount,
-            "gst_percent": gst_percent,
-            "gst_amount": gst_amount,
+            "gst_percent": 0,
+            "gst_amount": 0,
             "subtotal": subtotal,
             "final_amount": final_amount,
         }
@@ -80,10 +80,10 @@ def place_order(db: Session, payload: PlaceOrder):
     try:
         if not payload.user_id:
             raise Exception("user_required")
-
+        user = db.query(User).filter(User.id == payload.user_id).first()
         user_order = UserOrder(
             user_id=payload.user_id,
-            business_id=payload.business_id,
+            business_id=user.business_id if user else None,
             plan_id=payload.plan_id or None,
             coupon_code=payload.coupon_code or None,
             order_type=payload.order_type,

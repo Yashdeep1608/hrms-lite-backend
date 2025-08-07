@@ -87,7 +87,6 @@ class Product(Base):
     )
     custom_field_values = relationship("ProductCustomFieldValue", back_populates="product", cascade="all, delete", passive_deletes=True)
 
-
 class ProductCustomField(Base):
     __tablename__ = 'product_custom_fields'
 

@@ -169,7 +169,7 @@
             {% endif %}
             {% if business_contact.contact and business_contact.contact.phone_number %}
               <div>
-                <strong>Phone:</strong> +{{ business_contact.contact.isd_code or '' }} {{ business_contact.contact.phone_number }}
+                <strong>Phone:</strong> {{ business_contact.contact.isd_code or '' }} {{ business_contact.contact.phone_number }}
               </div>
             {% endif %}
             {% if business_contact.contact and business_contact.contact.email %}
@@ -215,7 +215,8 @@
           <th>Qty</th>
           <th>Unit Price</th>
           <th>Discount</th>
-          <th>Tax</th>
+          <th>Tax Percentage (%)</th>
+          <th>Tax Amount</th>
           <th>Total</th>
         </tr>
       </thead>
@@ -232,7 +233,8 @@
             <td>{{ item.item_type.title() }}</td>
             <td>{{ qty }}</td>
             <td>₹{{ '%.2f' % unit_price }}</td>
-            <td>₹{{ '%.2f' % discount }}</td>
+            <td>₹{{ '%.2f' % (discount * qty) }}</td>
+            <td>{{ item.tax_percentage }}%</td>
             <td>₹{{ '%.2f' % tax }}</td>
             <td>₹{{ '%.2f' % total }}</td>
           </tr>
@@ -242,22 +244,16 @@
     <div class="summary-table-container">
       <table class="summary-table">
         <tbody>
-          {% set totals = namespace(discount=0) %}
-          {% for item in order.cart.items %}
-            {% set qty = item.quantity or 1 %}
-            {% set unit_price = (item.actual_price / qty) | round(2) %}
-            {% set discount = (item.discount_price / qty) | round(2) %}
-            {% set tax = (item.tax_amount / qty) | round(2) if item.tax_amount else 0 %}
-            {% set total = item.final_price | round(2) %}
-            {% set totals.discount = totals.discount + item.discount_price %}
-          {% endfor %}
           <tr>
             <td>Subtotal:</td>
-            <td class="text-right">₹{{ '%.2f' % order.subtotal }}</td>
+            <td class="text-right">₹{{ '%.2f' % (order.subtotal + order.item_discount
+              + (order.coupon_discount or 0)
+        + (order.offer_discount or 0)
+        + (order.additional_discount or 0)) }}</td>
           </tr>
           <tr>
             <td>Item Discount:</td>
-            <td class="text-right">- ₹{{ '%.2f' % totals.discount }}</td>
+            <td class="text-right">- ₹{{ '%.2f' % order.item_discount }}</td>
           </tr>
           {% if order.coupon_discount %}
           <tr>

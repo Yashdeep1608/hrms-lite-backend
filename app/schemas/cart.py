@@ -10,9 +10,7 @@ class AddToCart(BaseModel):
     item_type:str
     item_id:int
     quantity:int
-    time_slot:Optional[str] = None
-    start_date:Optional[str] = None
-    day:Optional[str] = None
+    date:Optional[str] = None
 
 class GetCartRequest(BaseModel):
     business_id: int
