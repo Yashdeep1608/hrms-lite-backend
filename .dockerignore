@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+env/
+
+# Distribution / build
+build/
+dist/
+*.egg-info/
+
+# Logs and databases
+*.log
+*.db
+*.sqlite3
+
+# Environment variables
+.env
+*.env
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# IDE/editor configs
+.vscode/
+.idea/
+
+# PyInstaller
+*.spec
+
+# Alembic cache
+alembic/__pycache__/
+
+# Jupyter notebooks (if any)
+*.ipynb_checkpoints/
+
+# Node/npm (if front-end or CDN)
+node_modules/
+npm-debug.log
+
+# AWS CLI cache
+.aws/
+
+# Docker
+Dockerfile*
+docker-compose.yml

@@ -1,4 +1,4 @@
-from sqlalchemy import ARRAY, UUID, Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import UUID, Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base import Base
@@ -46,13 +46,12 @@ class CartItem(Base):
     final_price = Column(Numeric(10, 2), nullable=False)
     discount_price = Column(Numeric(10, 2), nullable=False)
     tax_amount = Column(Numeric(10, 2), nullable=True)
+    tax_percentage = Column(Numeric(5, 2), nullable=True)
 
     quantity = Column(Integer, default=1)
 
     # Service-specific optional fields
-    time_slot = Column(String, nullable=True)
-    start_date = Column(Date, nullable=True)
-    day = Column(String, nullable=True)
+    date = Column(Date, nullable=True)
 
     applied_offer_id = Column(Integer, ForeignKey("offers.id"), nullable=True)
     applied_coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=True)  # If you apply coupon to individual items

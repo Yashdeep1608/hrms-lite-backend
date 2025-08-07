@@ -1,11 +1,8 @@
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
-from io import BytesIO
-import os
 import time
 from decimal import ROUND_HALF_UP, Decimal
-import traceback
 import uuid
 from fastapi import UploadFile
 from jinja2 import Environment, FileSystemLoader
@@ -13,8 +10,6 @@ from sqlalchemy import UUID, DateTime, func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-import pdfkit
-from weasyprint import HTML
 from app.crud.contact import create_contact
 from app.crud.product import add_product_stock_log
 from app.helpers.s3 import upload_file_to_s3
@@ -273,16 +268,16 @@ def generate_invoice(order, business, business_contact):
             business_contact=business_contact
         )
 
-        # 2. Render PDF from HTML string
-        pdf_io = BytesIO()
-        HTML(string=html_out).write_pdf(pdf_io)
-        pdf_io.seek(0)
+        # # 2. Render PDF from HTML string
+        # pdf_io = BytesIO()
+        # HTML(string=html_out).write_pdf(pdf_io)
+        # pdf_io.seek(0)
 
         # 3. Wrap in UploadFile
         filename = f"{order.invoice_number}.pdf"
         upload_file = SimpleUploadFile(
             filename=filename,
-            file=pdf_io,
+            file='application/pdf',
             content_type="application/pdf"
         )
 

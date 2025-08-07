@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     
+    # Database config
+    POSTGRES_USER:str
+    POSTGRES_PASSWORD:str
+    POSTGRES_DB:str
+
     RAZORPAY_KEY_ID: str
     RAZORPAY_KEY_SECRET: str
     
