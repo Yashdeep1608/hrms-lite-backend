@@ -33,8 +33,7 @@ class Loan(Base):
 
     repayment_type = Column(Enum(LoanRepaymentType), nullable=False)
     repayment_amount = Column(Numeric(12, 2), nullable=True)  # fixed amount for each period (if applicable)
-    repayment_day_of_week = Column(Integer, nullable=True)    # 1=Monday .. 7=Sunday (for weekly loans)
-    repayment_day_of_month = Column(Integer, nullable=True)   # 1..31 (for monthly loans)
+    repayment_day = Column(Integer, nullable=True)    # 1=Monday .. 7=Sunday (for weekly loans) and 1 to 31 for monthly loans
     
     start_date = Column(Date, nullable=False) # when the loan started
     end_date = Column(Date, nullable=True) # when the loan ends (if applicable)

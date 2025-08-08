@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from app.schemas.expense import *
+from app.schemas.loan import *
 
 router = APIRouter(
     prefix="/api/admin/v1/payables",
@@ -83,6 +84,80 @@ def get_expense_categories(request: Request, db: Session = Depends(get_db)):
     try:
         data = crud_payable.get_expense_categories(db)
         return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+# Loans APIs
+@router.post("/create-loan")
+def create_loan(payload: AddEditLoan, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.create_loan(db, payload, current_user)
+        return ResponseHandler.success(message=translator.t("created_successfully", lang), data=data.id)
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.put("/update-loan/{loan_id}")
+def update_loan(loan_id: int, payload: AddEditLoan, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.update_expense(db, loan_id, payload)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=data.id)
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.get("/get-loans")
+def get_loans(filters:ExpenseFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_loans(db, filters, current_user)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.get("/get-loan/{loan_id}")
+def get_loan(loan_id: int, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_loan_by_id(db, loan_id)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.delete("/delete-loan/{loan_id}")
+def delete_loan(loan_id: int, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        crud_payable.delete_loan(db, loan_id)
+        return ResponseHandler.success(message=translator.t("deleted_successfully", lang))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+
+@router.post("/add-loan-repayment")
+def add_load_repayment(payload:LoanRepaymentRequest, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        crud_payable.add_loan_repayment(db, payload)
+        return ResponseHandler.success(message=translator.t("paid_successfully", lang))
     except Exception as e:
         return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
