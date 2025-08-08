@@ -33,5 +33,5 @@ class CartEntities(BaseModel):
     category_id:Optional[str] = None
     page:int
     page_size:int
-    sort_by:str = 'name'
-    sort_dir:str = 'asc'
+    sort_by:str = 'created_at'
+    sort_dir:str = 'desc'

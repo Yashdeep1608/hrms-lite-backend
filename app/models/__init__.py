@@ -24,4 +24,7 @@ from .combo import *
 from .enums import *
 from .order import *
 from .cart import *
+from .expense import *
+from .loan import *
+from .supplier import *
 # add all your models here for easy import elsewhere
