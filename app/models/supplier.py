@@ -30,14 +30,15 @@ class SupplierPurchase(Base):
 
     id = Column(Integer, primary_key=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
-
+    purchase_number = Column(String(255), nullable=False)
     supplier_invoice_number = Column(String(255), nullable=True)  # from supplier
     file_url = Column(String(1000), nullable=True)  # scanned PDF/image
     purchase_date = Column(Date, nullable=False)
 
-    taxable_amount = Column(Numeric(10, 2), nullable=False)  # before tax
-    total_tax_amount = Column(Numeric(10, 2), nullable=False) # CGST+SGST+IGST combined
-    total_amount = Column(Numeric(10, 2), nullable=False)     # final invoice amount
+    taxable_amount = Column(Numeric(10, 2), default=0)  # before tax
+    tax_rate = Column(Numeric(10, 2), default=0)
+    total_tax_amount = Column(Numeric(10, 2), default=0) # CGST+SGST+IGST combined
+    total_amount = Column(Numeric(10, 2),default=0)     # final invoice amount
 
     notes = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -51,9 +52,8 @@ class SupplierPurchaseItem(Base):
 
     id = Column(Integer, primary_key=True)
     purchase_id = Column(Integer, ForeignKey("supplier_purchases.id", ondelete="CASCADE"), nullable=False)
-
-    description = Column(String(255), nullable=False)  # name of item
-    quantity = Column(Numeric(10, 2), nullable=False)
+    product_id = Column(Integer,nullable=False)
+    quantity = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
 
     tax_rate = Column(Numeric(5, 2), nullable=True)     # e.g., 18.00

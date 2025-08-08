@@ -9,6 +9,7 @@ from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from app.schemas.expense import *
 from app.schemas.loan import *
+from app.schemas.supplier import *
 
 router = APIRouter(
     prefix="/api/admin/v1/payables",
@@ -42,7 +43,7 @@ def update_expense(expense_id: int, payload: AddEditExpense, request: Request, d
             error=str(e)
         )
 
-@router.get("/get-expenses")
+@router.post("/get-expenses")
 def get_expenses(filters:ExpenseFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
@@ -115,7 +116,7 @@ def update_loan(loan_id: int, payload: AddEditLoan, request: Request, db: Sessio
             error=str(e)
         )
 
-@router.get("/get-loans")
+@router.post("/get-loans")
 def get_loans(filters:ExpenseFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
@@ -151,13 +152,134 @@ def delete_loan(loan_id: int, request: Request, db: Session = Depends(get_db)):
             error=str(e)
         )
 
-
 @router.post("/add-loan-repayment")
 def add_load_repayment(payload:LoanRepaymentRequest, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
         crud_payable.add_loan_repayment(db, payload)
         return ResponseHandler.success(message=translator.t("paid_successfully", lang))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+
+# Suppliers APIs
+@router.post("/create-supplier")
+def create_supplier(payload: AddEditSupplier, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.cerate_supplier(db, payload, current_user)
+        return ResponseHandler.success(message=translator.t("created_successfully", lang), data=data.id)
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.put("/update-supplier/{supplier_id}")
+def update_supplier(supplier_id: int, payload: AddEditSupplier, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.update_supplier(db, supplier_id, payload)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=data.id)
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.post("/get-supplier")
+def get_suppliers(filters:SupplierFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_suppliers(db, filters, current_user)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.delete("/delete-supplier/{supplier_id}")
+def delete_supplier(supplier_id: int, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        crud_payable.delete_supplier(db, supplier_id)
+        return ResponseHandler.success(message=translator.t("deleted_successfully", lang))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.post("/add-supplier-purchase")
+def add_supplier_purchase(payload:AddSupplierPurchase, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        crud_payable.add_supplier_purchase(db, payload,current_user)
+        return ResponseHandler.success(message=translator.t("paid_successfully", lang))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("added_successfully", lang),
+            error=str(e)
+        )
+
+@router.post("/add-transactions")
+def add_transactions(transactions:List[TransactionRequest], request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        crud_payable.add_transactions(db, transactions)
+        return ResponseHandler.success(message=translator.t("added_successfully", lang))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.get("/get-supplier_summary/{supplier_id}")
+def get_supplier_summary(supplier_id: int, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_supplier_summary(db, supplier_id)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+    
+@router.get("/get-purchase/{purchase_id}")
+def get_supplier_purchase_detail(purchase_id: int, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_supplier_purchase_detail(db, purchase_id)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+
+@router.post("/get-supplier-purchases")
+def get_supplier_purchases(filters:SupplierPurchaseFilters, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_supplier_purchases(db, filters)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
+        )
+    
+@router.post("/get-supplier-transactions")
+def get_supplier_transactions(filters:SupplierTransactionFilters, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_payable.get_supplier_transactions(db, filters)
+        return ResponseHandler.success(message=translator.t("success", lang), data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),

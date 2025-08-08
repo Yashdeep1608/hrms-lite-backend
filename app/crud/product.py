@@ -506,6 +506,7 @@ def add_product_stock_log(
     source: Optional[str] = None,
     source_id: Optional[int] = None,
     created_by: Optional[int] = None,
+    notes:Optional[str] = None
 ) -> None:
     # Only fetch product if stock_before not passed
     if stock_before is None or stock_after is None:
@@ -519,7 +520,7 @@ def add_product_stock_log(
     direction = "Stock-In" if is_stock_in else "Stock-Out"
     source_str = f" via {source.upper()}" if source else ""
     ref_str = f" (Ref ID: {source_id})" if source_id else ""
-    note = f"{direction} of {quantity} units{source_str}{ref_str}"
+    note = notes if notes else f"{direction} of {quantity} units{source_str}{ref_str}"
 
     log = ProductStockLog(
         product_id=product_id,
