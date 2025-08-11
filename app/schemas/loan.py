@@ -7,7 +7,7 @@ class AddEditLoan(BaseModel):
     lender_contact:Optional[str] = None
     repayment_type:Optional[str] = None
     repayment_day:Optional[int] = None
-    
+    emi_number:Optional[int] = None
     repayment_amount:Optional[float] = None
     principal_amount:Optional[float] = None
     interest_rate:Optional[float] = None
@@ -20,8 +20,9 @@ class AddEditLoan(BaseModel):
 
 class LoanRepaymentRequest(BaseModel):
     loan_id: int
-    payment_date:date
-    payment_amount:float
+    repayment_id:Optional[int] = None
+    payment_date:Optional[date] = None
+    payment_amount:Optional[float] = None
     notes:Optional[str] = None
 
 class LoanFilters(BaseModel):

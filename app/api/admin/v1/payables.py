@@ -117,7 +117,7 @@ def update_loan(loan_id: int, payload: AddEditLoan, request: Request, db: Sessio
         )
 
 @router.post("/get-loans")
-def get_loans(filters:ExpenseFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def get_loans(filters:LoanFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
         data = crud_payable.get_loans(db, filters, current_user)
@@ -190,7 +190,7 @@ def update_supplier(supplier_id: int, payload: AddEditSupplier, request: Request
             error=str(e)
         )
 
-@router.post("/get-supplier")
+@router.post("/get-suppliers")
 def get_suppliers(filters:SupplierFilters, request: Request, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:

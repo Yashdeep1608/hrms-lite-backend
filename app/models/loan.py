@@ -17,6 +17,10 @@ class LoanStatus(str, enum.Enum):
     CLOSED = "closed"
     DEFAULTED = "defaulted"
 
+class LoanRepaymentStatus (str, enum.Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    OVERDUE = "overdue"
 
 class Loan(Base):
     __tablename__ = "loans"
@@ -34,7 +38,8 @@ class Loan(Base):
     repayment_type = Column(Enum(LoanRepaymentType), nullable=False)
     repayment_amount = Column(Numeric(12, 2), nullable=True)  # fixed amount for each period (if applicable)
     repayment_day = Column(Integer, nullable=True)    # 1=Monday .. 7=Sunday (for weekly loans) and 1 to 31 for monthly loans
-    
+    emi_number = Column(Integer, nullable = True)
+
     start_date = Column(Date, nullable=False) # when the loan started
     end_date = Column(Date, nullable=True) # when the loan ends (if applicable)
 
@@ -44,8 +49,11 @@ class Loan(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    repayments = relationship("LoanRepayment", back_populates="loan")
-
+    repayments = relationship(
+        "LoanRepayment",
+        back_populates="loan",
+        cascade="all, delete-orphan"
+    )
 
 class LoanRepayment(Base):
     __tablename__ = "loan_repayments"
@@ -56,7 +64,7 @@ class LoanRepayment(Base):
     payment_date = Column(Date, nullable=False)
     amount_paid = Column(Numeric(12, 2), nullable=False)
     notes = Column(String, nullable=True)
-
+    status = Column(Enum(LoanRepaymentStatus), default=LoanRepaymentStatus.PENDING)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

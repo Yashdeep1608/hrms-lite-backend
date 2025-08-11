@@ -1,4 +1,6 @@
+import calendar
 from datetime import timedelta
+from decimal import Decimal
 import uuid
 from sqlalchemy import case, func, or_
 from app.crud.product import add_product_stock_log
@@ -19,6 +21,211 @@ def generate_purchase_number(id:int):
 def generate_transaction_id():
     short_id = uuid.uuid4().hex[:16].upper()
     return f"SPTXN-{short_id}"
+from datetime import date, timedelta
+from decimal import Decimal
+import calendar
+import logging
+from sqlalchemy import func
+
+logger = logging.getLogger(__name__)
+
+def _first_of_month(dt: date) -> date:
+    return date(dt.year, dt.month, 1)
+
+def _last_of_month(dt: date) -> date:
+    last_day = calendar.monthrange(dt.year, dt.month)[1]
+    return date(dt.year, dt.month, last_day)
+
+def _safe_repayment_amount(loan) -> Decimal:
+    """Return per-EMI amount as Decimal. If loan.repayment_amount missing, try total/emi_number fallback."""
+    if loan.repayment_amount is not None:
+        return Decimal(str(loan.repayment_amount))
+    # fallback: if emi_number exists, divide total_amount_payable / emi_number
+    if loan.emi_number:
+        total = Decimal(str(loan.total_amount_payable or 0))
+        return (total / Decimal(str(loan.emi_number))).quantize(Decimal("0.01"))
+    return Decimal("0.00")
+
+
+def generate_repayments(db: Session, loan: Loan):
+    """
+    Generate (idempotently) repayments for:
+      - an aggregated PAID record covering [start_date .. yesterday] if none exist in that range
+      - a PENDING record for today (if due)
+      - PENDING records for the rest of current month (tomorrow..month_end) according to frequency
+
+    Notes:
+      - Only for DAILY / WEEKLY / MONTHLY. Skips BULLET / FLEXIBLE / NO_COST.
+      - This function will not create records beyond current month.
+      - It will not modify existing repayments (only insert missing ones).
+    """
+    # Skip types that should not auto-generate
+    if loan.repayment_type in (LoanRepaymentType.FLEXIBLE, LoanRepaymentType.NO_COST, LoanRepaymentType.BULLET):
+        return
+
+    try:
+        today = date.today()
+        month_start = _first_of_month(today)
+        month_end = _last_of_month(today)
+
+        # If loan starts after the end of this month, nothing to generate
+        if loan.start_date > month_end:
+            return
+
+        per_emi = _safe_repayment_amount(loan)
+
+        # Determine existing payment dates for this loan in the month and past region
+        existing_dates_all = {
+            row[0] for row in db.query(LoanRepayment.payment_date)
+                                .filter(LoanRepayment.loan_id == loan.id).all()
+        }
+
+        # -----------------------------
+        # 1) Aggregated "PAID" for past (start_date -> yesterday)
+        # -----------------------------
+        past_end = today - timedelta(days=1)
+        if loan.end_date and loan.end_date < past_end:
+            past_end = loan.end_date
+
+        if past_end >= loan.start_date:
+            # Only create aggregated past if **no** repayment exists in that entire past range
+            cnt_existing_in_past = db.query(LoanRepayment).filter(
+                LoanRepayment.loan_id == loan.id,
+                LoanRepayment.payment_date >= loan.start_date,
+                LoanRepayment.payment_date <= past_end
+            ).count()
+
+            if cnt_existing_in_past == 0:
+                # compute how many installments and how much total for that period
+                installments = 0
+                total_amount = Decimal("0.00")
+
+                if loan.repayment_type == LoanRepaymentType.DAILY:
+                    days = (past_end - loan.start_date).days + 1
+                    installments = days
+                    total_amount = per_emi * Decimal(days)
+
+                elif loan.repayment_type == LoanRepaymentType.WEEKLY:
+                    # count occurrences of repayment weekday between start_date and past_end (inclusive)
+                    target_weekday = loan.repayment_day or loan.start_date.isoweekday()
+                    d = loan.start_date
+                    while d <= past_end:
+                        if d.isoweekday() == target_weekday:
+                            installments += 1
+                        d += timedelta(days=1)
+                    total_amount = per_emi * Decimal(installments)
+
+                elif loan.repayment_type in [LoanRepaymentType.MONTHLY,LoanRepaymentType.NO_COST,LoanRepaymentType.BULLET]:
+                    # iterate month by month and count months whose scheduled day falls in range
+                    y = loan.start_date.year
+                    m = loan.start_date.month
+                    while True:
+                        dim = calendar.monthrange(y, m)[1]
+                        day = loan.repayment_day if loan.repayment_day and loan.repayment_day <= dim else dim
+                        candidate = date(y, m, day)
+                        if candidate >= loan.start_date and candidate <= past_end:
+                            installments += 1
+                        # advance one month
+                        if candidate > past_end:
+                            break
+                        # move to next month
+                        if m == 12:
+                            y += 1
+                            m = 1
+                        else:
+                            m += 1
+                        # stop if we've moved beyond past_end month
+                        if date(y, m, 1) > past_end:
+                            # still need to check the month we entered (loop handles candidate)
+                            pass
+                    total_amount = per_emi * Decimal(installments)
+
+                # Insert aggregated PAID record only if there is at least one installment
+                if installments > 0 and total_amount > Decimal("0.00"):
+                    aggregated_note = f"Aggregated {installments} installment(s) from {loan.start_date.isoformat()} to {past_end.isoformat()}"
+                    agg = LoanRepayment(
+                        loan_id=loan.id,
+                        payment_date=past_end,
+                        amount_paid=total_amount.quantize(Decimal("0.01")),
+                        status=LoanRepaymentStatus.PAID,
+                        notes=aggregated_note
+                    )
+                    # ensure not duplicate date (just in case)
+                    if agg.payment_date not in existing_dates_all:
+                        db.add(agg)
+                        db.commit()
+                        # refresh existing dates set
+                        existing_dates_all.add(agg.payment_date)
+
+        # -----------------------------
+        # 2) Create PENDING for today if due (and none exists)
+        # -----------------------------
+        def _is_due_on(d: date) -> bool:
+            if d < loan.start_date:
+                return False
+            if loan.end_date and d > loan.end_date:
+                return False
+
+            if loan.repayment_type == LoanRepaymentType.DAILY:
+                return True
+            if loan.repayment_type == LoanRepaymentType.WEEKLY:
+                target = loan.repayment_day or d.isoweekday()
+                return (d.isoweekday() == target)
+            if loan.repayment_type in [LoanRepaymentType.MONTHLY,LoanRepaymentType.NO_COST,LoanRepaymentType.BULLET]:
+                dim = calendar.monthrange(d.year, d.month)[1]
+                day = loan.repayment_day if loan.repayment_day and loan.repayment_day <= dim else dim
+                return d.day == day
+            return False
+
+        inserts = []
+        if _is_due_on(today) and today not in existing_dates_all:
+            inserts.append(
+                LoanRepayment(
+                    loan_id=loan.id,
+                    payment_date=today,
+                    amount_paid=per_emi.quantize(Decimal("0.01")),
+                    status=LoanRepaymentStatus.PENDING,
+                    notes="Auto-generated: today due"
+                )
+            )
+            existing_dates_all.add(today)
+
+        # -----------------------------
+        # 3) Create PENDING for the rest of the current month (tomorrow .. month_end)
+        # -----------------------------
+        cursor = today + timedelta(days=1)
+        while cursor <= month_end:
+            # stop if beyond loan end_date
+            if loan.end_date and cursor > loan.end_date:
+                break
+
+            if _is_due_on(cursor) and cursor not in existing_dates_all:
+                inserts.append(
+                    LoanRepayment(
+                        loan_id=loan.id,
+                        payment_date=cursor,
+                        amount_paid=per_emi.quantize(Decimal("0.01")),
+                        status=LoanRepaymentStatus.PENDING,
+                        notes="Auto-generated: current month schedule"
+                    )
+                )
+                existing_dates_all.add(cursor)
+
+            cursor += timedelta(days=1)
+
+        # Bulk insert if any
+        if inserts:
+            db.add_all(inserts)
+            db.commit()
+
+    except Exception as exc:
+        # Rollback any partial work and re-raise so caller can decide to ignore
+        try:
+            db.rollback()
+        except Exception:
+            logger.exception("Rollback failed while handling generate_repayments error.")
+        logger.exception("generate_repayments failed for loan_id=%s: %s", getattr(loan, "id", None), exc)
+        raise
 
 def create_expense(db: Session, payload: AddEditExpense,current_user:User):
     expense = Expense(
@@ -47,32 +254,55 @@ def update_expense(db: Session, expense_id: int, payload: AddEditExpense):
 def get_expense_by_id(db: Session, expense_id: int):
     return db.query(Expense).filter(Expense.id == expense_id).first()
 
-def get_expenses(db: Session,filters:ExpenseFilters,current_user:User):
-    query = db.query(Expense)
+def get_expenses(db: Session, filters: ExpenseFilters, current_user: User):
+    query = db.query(Expense).options(
+        joinedload(Expense.category)  # eager load category
+    )
 
     if filters.category_id:
         query = query.filter(Expense.category_id == filters.category_id)
     if filters.search:
-        query = query.filter(or_(Expense.notes.like(f"%{filters.search}%"),))
+        query = query.filter(or_(Expense.notes.ilike(f"%{filters.search}%"),))
     if filters.from_date:
         query = query.filter(Expense.expense_date >= filters.from_date)
     if filters.to_date:
         query = query.filter(Expense.expense_date <= filters.to_date)
-    if current_user.role not in  [RoleTypeEnum.ADMIN,RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN]:
+
+    # Role restriction
+    if current_user.role not in [RoleTypeEnum.ADMIN, RoleTypeEnum.SUPERADMIN, RoleTypeEnum.PLATFORM_ADMIN]:
         query = query.filter(Expense.created_by_user_id == current_user.id)
-    
+
     total = query.count()
+
+    # Sorting
     sort_attr = getattr(Expense, filters.sort_by or "created_at", None)
     if sort_attr is not None:
         query = query.order_by(sort_attr.asc() if filters.sort_dir == "asc" else sort_attr.desc())
 
-    # Count and paginate
-    skip = (filters.page - 1) * filters.page_size
-    items = query.offset(skip).limit(filters.page_size).all()
     # Pagination
+    skip = (filters.page - 1) * filters.page_size
+    expenses = query.offset(skip).limit(filters.page_size).all()
+
+    # Format output with category info
+    items = [
+        {
+            "id": exp.id,
+            "business_id": exp.business_id,
+            "category_id": exp.category_id,
+            "amount": float(exp.amount),
+            "notes": exp.notes,
+            "expense_date": exp.expense_date,
+            "created_at": exp.created_at,
+            "updated_at": exp.updated_at,
+            "category_name": exp.category.name if exp.category else None,
+            "image_url": exp.category.image_url if exp.category else None
+        }
+        for exp in expenses
+    ]
+
     return {
-        "items":items,
-        "total":total
+        "items": items,
+        "total": total
     }
 
 def delete_expense(db: Session, expense_id: int):
@@ -96,6 +326,7 @@ def create_loan(db: Session, payload: AddEditLoan,current_user:User):
         repayment_type = payload.repayment_type,
         repayment_amount = payload.repayment_amount,
         repayment_day = payload.repayment_day,
+        emi_number = payload.emi_number,
         start_date = payload.start_date,
         end_date = payload.end_date,
         notes = payload.notes,
@@ -103,6 +334,20 @@ def create_loan(db: Session, payload: AddEditLoan,current_user:User):
     db.add(loan)
     db.commit()
     db.refresh(loan)
+    
+    # Only generate repayments for the current month
+    if loan.repayment_type in [LoanRepaymentType.DAILY, LoanRepaymentType.WEEKLY, LoanRepaymentType.MONTHLY, LoanRepaymentType.NO_COST]:
+        generate_repayments(db, loan)
+    if loan.repayment_type == LoanRepaymentType.BULLET:
+        loan_repayment = LoanRepayment(
+            loan_id=loan.id,
+            amount_paid=loan.total_amount_payable,
+            payment_date = loan.end_date,
+            status=LoanRepaymentStatus.PENDING,
+            notes="Auto-generated"
+        )
+        db.add(loan_repayment)
+        db.commit()
     return loan
 
 def update_loan(db: Session, loan_id: int, payload: AddEditExpense):
@@ -122,87 +367,138 @@ def update_loan(db: Session, loan_id: int, payload: AddEditExpense):
     return loan
 
 def get_loan_by_id(db: Session, loan_id: int):
-    # Fetch loan with repayments in one query
+    today = date.today()
+
+    # Preload repayments to avoid N+1 queries
     loan = (
         db.query(Loan)
-        .options(joinedload(Loan.repayments))
+        .options(joinedload(Loan.repayments).joinedload(LoanRepayment.loan))
         .filter(Loan.id == loan_id)
         .first()
     )
+
     if not loan:
         return None
 
-    # Calculate totals in Python
-    repayments_sorted = sorted(loan.repayments, key=lambda r: r.payment_date, reverse=True)
-    total_paid = sum(float(r.amount_paid) for r in loan.repayments)
-    remaining_amount = float(loan.total_amount_payable) - total_paid
+    # Only generate if first call of the month
+    last_repayment = (
+        db.query(LoanRepayment)
+        .filter(LoanRepayment.loan_id == loan_id)
+        .order_by(LoanRepayment.payment_date.desc())
+        .first()
+    )
 
-    # Remaining installments
+    if not last_repayment or last_repayment.payment_date.month != today.month or last_repayment.payment_date.year != today.year:
+        generate_repayments(db, loan)
+
+    # ---- Total Paid ----
+    total_paid = sum(
+        float(r.amount_paid)
+        for r in loan.repayments
+        if r.status == LoanRepaymentStatus.PAID
+    )
+    remaining_amount = max(float(loan.total_amount_payable) - total_paid, 0)
+
+    # ---- EMI Details ----
+    emi_amount = float(loan.repayment_amount or 0)
+    total_installments = (
+        int(float(loan.total_amount_payable) // emi_amount) if emi_amount else None
+    )
+
     remaining_installments = None
-    if loan.repayment_amount and loan.repayment_amount > 0:
-        remaining_installments = int(remaining_amount // float(loan.repayment_amount))
-        if remaining_amount % float(loan.repayment_amount) > 0:
+    if emi_amount:
+        remaining_installments = int(remaining_amount // emi_amount)
+        if remaining_amount % emi_amount > 0:
             remaining_installments += 1
 
-    # Last payment date
-    last_payment_date = repayments_sorted[0].payment_date if repayments_sorted else None
+    # ---- Last Payment Date ----
+    paid_repayments = [r for r in loan.repayments if r.status == LoanRepaymentStatus.PAID]
+    last_payment_date = max((r.payment_date for r in paid_repayments), default=None)
 
-    # Next due date
+    # ---- Next Due Date ----
+    base_date = last_payment_date or loan.start_date
     next_due_date = None
+
     if loan.repayment_type == LoanRepaymentType.DAILY:
         next_due_date = (last_payment_date or loan.start_date) + timedelta(days=1)
 
     elif loan.repayment_type == LoanRepaymentType.WEEKLY:
-        next_due_date = (last_payment_date or loan.start_date)
-        while next_due_date.isoweekday() != loan.repayment_day:
-            next_due_date += timedelta(days=1)
+        base_date = last_payment_date or loan.start_date
+        # Move forward exactly 1 week from last payment date
+        next_due_date = base_date + timedelta(days=7)
 
-    elif loan.repayment_type == LoanRepaymentType.MONTHLY:
-        month = (last_payment_date or loan.start_date).month
-        year = (last_payment_date or loan.start_date).year
-        day = min(loan.repayment_day, 28)
+    elif loan.repayment_type == LoanRepaymentType.MONTHLY or loan.repayment_type == LoanRepaymentType.NO_COST:
+        base_date = last_payment_date or loan.start_date
+        day = min(loan.repayment_day, 28)  # avoid invalid dates
+        month = base_date.month
+        year = base_date.year
+
+        # Always move to the *next month*
+        if month == 12:
+            month = 1
+            year += 1
+        else:
+            month += 1
+
         next_due_date = date(year, month, day)
-        if next_due_date <= date.today():
-            if month == 12:
-                next_due_date = date(year + 1, 1, day)
-            else:
-                next_due_date = date(year, month + 1, day)
 
-    # Repayment list
+    elif loan.repayment_type == LoanRepaymentType.BULLET:
+        # Only one due date: loan end date
+        next_due_date = loan.end_date
+
+    elif loan.repayment_type == LoanRepaymentType.FLEXIBLE:
+        # No strict schedule, due date could be next month start
+        next_due_date = None  # Optional: Or keep it empty for frontend
+
+    # ---- Auto-Close Loan ----
+    if remaining_amount <= 0 and loan.status != LoanStatus.CLOSED:
+        loan.status = LoanStatus.CLOSED
+        db.commit()
+
+    # ---- Frontend Repayments ----
     repayment_list = [
         {
             "id": r.id,
             "payment_date": r.payment_date,
             "amount_paid": float(r.amount_paid),
-            "notes": r.notes
+            "notes": r.notes,
+            "status": r.status,
         }
-        for r in repayments_sorted
+        for r in loan.repayments
     ]
+    repayment_list.sort(key=lambda x: x["payment_date"])
 
     return {
         "loan_id": loan.id,
         "lender_name": loan.lender_name,
         "lender_contact": loan.lender_contact,
-        "loan_amount": loan.total_amount_payable,
+        "notes": loan.notes,
+        "loan_amount": float(loan.total_amount_payable),
+        "principal_amount": float(loan.principal_amount),
+        "repayment_type": loan.repayment_type,
+        "repayment_day": loan.repayment_day,
+        "total_amount_payable": loan.total_amount_payable,
+        "repayment_amount": emi_amount,
+        "emi_number": loan.emi_number,
+        "total_installments": total_installments,
         "total_paid": total_paid,
         "remaining_amount": remaining_amount,
         "remaining_installments": remaining_installments,
-        "total_installments": (
-            int(float(loan.total_amount_payable) // float(loan.repayment_amount))
-            if loan.repayment_amount else None
-        ),
         "progress_percent": round((total_paid / float(loan.total_amount_payable)) * 100, 2)
             if loan.total_amount_payable else 0,
         "last_payment_date": last_payment_date,
         "next_due_date": next_due_date,
         "status": loan.status,
         "overdue_days": (
-            (date.today() - next_due_date).days
-            if next_due_date and next_due_date < date.today() and loan.status != LoanStatus.CLOSED
+            (today - next_due_date).days
+            if next_due_date and next_due_date < today and loan.status != LoanStatus.CLOSED
             else 0
         ),
         "is_fully_paid": remaining_amount <= 0,
-        "repayments": repayment_list
+        "start_date": loan.start_date,
+        "end_date": loan.end_date,
+        "interest_rate": loan.interest_rate,
+        "repayments": repayment_list,
     }
 
 def get_loans(db: Session,filters:LoanFilters,current_user:User):
@@ -248,58 +544,137 @@ def get_loan_repayment_reminders(db: Session, current_user: User):
     ).all()
 
     for loan in loans:
-        # Find the last repayment date
-        last_repayment = db.query(LoanRepayment)\
-            .filter(LoanRepayment.loan_id == loan.id)\
-            .order_by(LoanRepayment.payment_date.desc())\
-            .first()
-        
-        # Daily repayment
-        if loan.repayment_type == LoanRepaymentType.DAILY:
-            due_date = (last_repayment.payment_date if last_repayment else loan.start_date) + timedelta(days=1)
-            if today >= due_date:
-                reminders.append(f"Loan '{loan.lender_name}' – Daily repayment of ₹{loan.repayment_amount} is due.")
+        # Fetch only unpaid repayments
+        repayments = db.query(LoanRepayment).filter(
+            LoanRepayment.loan_id == loan.id,
+            LoanRepayment.status != LoanRepaymentStatus.PAID
+        ).order_by(LoanRepayment.payment_date.asc()).all()
 
-        # Weekly repayment
-        elif loan.repayment_type == LoanRepaymentType.WEEKLY:
-            if today.isoweekday() == loan.repayment_day:
-                reminders.append(f"Loan '{loan.lender_name}' – Weekly repayment of ₹{loan.repayment_amount} is due today.")
+        # --- Generate reminders ---
+        for r in repayments:
+            if r.payment_date == today:
+                reminders.append(
+                    f"Loan '{loan.lender_name}' – Repayment of ₹{loan.repayment_amount} is due today."
+                )
+            elif r.payment_date < today:
+                reminders.append(
+                    f"Loan '{loan.lender_name}' – Repayment of ₹{loan.repayment_amount} was overdue on {r.payment_date}."
+                )
 
-        # Monthly repayment
-        elif loan.repayment_type == LoanRepaymentType.MONTHLY:
-            if today.day == loan.repayment_day:
-                reminders.append(f"Loan '{loan.lender_name}' – Monthly repayment of ₹{loan.repayment_amount} is due today.")
+        # Special cases
+        if loan.repayment_type == LoanRepaymentType.BULLET and loan.end_date and today >= loan.end_date - timedelta(days=3):
+            reminders.append(
+                f"Loan '{loan.lender_name}' – Full repayment of ₹{loan.total_amount_payable} is due on {loan.end_date}."
+            )
 
-        # Bullet repayment (full at end date)
-        elif loan.repayment_type == LoanRepaymentType.BULLET:
-            if loan.end_date and today >= loan.end_date - timedelta(days=3):
-                reminders.append(f"Loan '{loan.lender_name}' – Full repayment of ₹{loan.total_amount_payable} is due on {loan.end_date}.")
+        if loan.repayment_type == LoanRepaymentType.FLEXIBLE:
+            last_paid = db.query(LoanRepayment).filter(
+                LoanRepayment.loan_id == loan.id,
+                LoanRepayment.status == LoanRepaymentStatus.PAID
+            ).order_by(LoanRepayment.payment_date.desc()).first()
 
-        # Flexible repayment
-        elif loan.repayment_type == LoanRepaymentType.FLEXIBLE:
-            # Only remind if no payment for last 30 days
-            if not last_repayment or (today - last_repayment.payment_date).days >= 30:
-                reminders.append(f"Loan '{loan.lender_name}' – Flexible loan: consider making a payment.")
+            if not last_paid or (today - last_paid.payment_date).days >= 30:
+                reminders.append(
+                    f"Loan '{loan.lender_name}' – Flexible loan: consider making a payment."
+                )
 
-        # No-cost loan
-        elif loan.repayment_type == LoanRepaymentType.NO_COST:
-            if loan.end_date and today >= loan.end_date - timedelta(days=3):
-                reminders.append(f"Loan '{loan.lender_name}' – No-cost loan ends on {loan.end_date}.")
+        if loan.repayment_type == LoanRepaymentType.NO_COST and loan.end_date and today >= loan.end_date - timedelta(days=3):
+            reminders.append(
+                f"Loan '{loan.lender_name}' – No-cost loan ends on {loan.end_date}."
+            )
 
     return reminders
 
-def add_loan_repayment(db:Session,payload:LoanRepaymentRequest):
+def add_loan_repayment(db: Session, payload: LoanRepaymentRequest):
+    # Fetch loan
     loan = db.query(Loan).filter(Loan.id == payload.loan_id).first()
     if not loan:
         raise Exception("loan_not_found")
+
+    # Ensure Decimal amounts
+    payment_amount = Decimal(str(payload.payment_amount or 0))
+    total_amount_payable = Decimal(str(loan.total_amount_payable or 0))
+
+    # Total already paid
+    total_paid = db.query(func.coalesce(func.sum(LoanRepayment.amount_paid), 0)) \
+                   .filter(LoanRepayment.loan_id == loan.id,
+                           LoanRepayment.status == LoanRepaymentStatus.PAID) \
+                   .scalar() or Decimal("0")
+    total_paid = Decimal(str(total_paid))
+
+    # -------------------------
+    # CASE 1: repayment_id present → Just mark repayment as paid
+    # -------------------------
+    if payload.repayment_id:
+        loan_repayment = db.query(LoanRepayment).filter(
+            LoanRepayment.id == payload.repayment_id,
+            LoanRepayment.loan_id == loan.id
+        ).first()
+        if not loan_repayment:
+            raise Exception("loan_repayment_not_found")
+
+        # Just mark as paid, no overpayment check
+        loan_repayment.status = LoanRepaymentStatus.PAID
+        loan_repayment.notes = payload.notes or "Loan repayment marked as paid"
+
+        db.commit()
+        return loan_repayment
+
+    # -------------------------
+    # CASE 2: repayment_id not present → Flexible/manual repayment
+    # -------------------------
+
+    # Overpayment validation (for flexible payments)
+    if total_paid + payment_amount > total_amount_payable:
+        raise Exception("payment_exceeds_total_amount")
+
+    # Create new repayment record
     loan_repayment = LoanRepayment(
-        loan_id=payload.loan_id,
+        loan_id=loan.id,
         payment_date=payload.payment_date,
-        payment_amount=payload.payment_amount,
-        notes=payload.notes
+        amount_paid=payment_amount,
+        status=LoanRepaymentStatus.PAID,
+        notes=payload.notes or "Loan repayment"
     )
     db.add(loan_repayment)
     db.commit()
+
+    # -------------------------
+    # Adjust pending repayments if overpaying EMI amount
+    # -------------------------
+    scheduled_repayment = Decimal(str(loan.repayment_amount or 0))
+    overpay_amount = Decimal("0")
+
+    if scheduled_repayment > 0 and payment_amount > scheduled_repayment:
+        overpay_amount = payment_amount - scheduled_repayment
+
+    # Apply overpayment only if all EMIs are generated
+    generated_count = db.query(LoanRepayment).filter(
+        LoanRepayment.loan_id == loan.id
+    ).count()
+
+    if overpay_amount > 0 and generated_count == loan.emi_number:
+        pending_repayments = db.query(LoanRepayment) \
+            .filter(LoanRepayment.loan_id == loan.id,
+                    LoanRepayment.status == LoanRepaymentStatus.PENDING) \
+            .order_by(LoanRepayment.payment_date.desc()) \
+            .all()
+
+        for r in pending_repayments:
+            if overpay_amount <= 0:
+                break
+
+            amt = Decimal(str(r.amount_paid or 0))
+            if amt <= overpay_amount:
+                overpay_amount -= amt
+                db.delete(r)
+            else:
+                r.amount_paid = amt - overpay_amount
+                overpay_amount = Decimal("0")
+                db.add(r)
+
+        db.commit()
+
     return loan_repayment
 
 def update_loan_status(db: Session, loan_id: int, status: LoanStatus):

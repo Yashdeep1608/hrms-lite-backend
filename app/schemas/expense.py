@@ -10,7 +10,7 @@ class AddEditExpense(BaseModel):
 
 class ExpenseFilters(BaseModel):
     search:Optional[str] = None
-    category_id:Optional[str] = None
+    category_id:Optional[int] = None
     from_date: Optional[date] = None
     to_date: Optional[date] = None
     page:int
