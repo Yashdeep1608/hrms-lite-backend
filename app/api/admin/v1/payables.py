@@ -238,7 +238,7 @@ def add_transactions(transactions:List[TransactionRequest], request: Request, db
             error=str(e)
         )
 
-@router.get("/get-supplier_summary/{supplier_id}")
+@router.get("/get-supplier-summary/{supplier_id}")
 def get_supplier_summary(supplier_id: int, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:

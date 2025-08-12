@@ -872,41 +872,73 @@ def add_transactions(db:Session,transactions:List[TransactionRequest]):
     return True
 
 def get_supplier_summary(db: Session, supplier_id: int):
-    # Aggregate purchases
-    purchase_stats = db.query(
-        func.count(SupplierPurchase.id).label("total_purchases"),
-        func.coalesce(func.sum(SupplierPurchase.total_amount), 0).label("total_purchase_amount"),
-        func.max(SupplierPurchase.purchase_date).label("last_purchase_date"),
-        func.avg(SupplierPurchase.total_amount).label("avg_purchase_value"),
-        func.max(SupplierPurchase.total_amount).label("largest_purchase")
-    ).filter(SupplierPurchase.supplier_id == supplier_id).first()
+    try:
+        supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+        if not supplier:
+            raise Exception("Supplier not found")
 
-    # Aggregate transactions
-    transaction_stats = db.query(
-        func.count(SupplierTransaction.id).label("total_transactions"),
-        func.coalesce(func.sum(SupplierTransaction.amount), 0).label("total_paid_amount")
-    ).filter(SupplierTransaction.supplier_id == supplier_id).first()
+        # Purchase stats
+        purchase_stats = db.query(
+            func.count(SupplierPurchase.id).label("total_purchases"),
+            func.coalesce(func.sum(SupplierPurchase.total_amount), 0).label("total_purchase_amount"),
+            func.max(SupplierPurchase.purchase_date).label("last_purchase_date"),
+            func.min(SupplierPurchase.purchase_date).label("first_purchase_date"),
+            func.avg(SupplierPurchase.total_amount).label("avg_purchase_value"),
+            func.max(SupplierPurchase.total_amount).label("largest_purchase")
+        ).filter(SupplierPurchase.supplier_id == supplier_id).first()
 
-    total_credit_amount = float(purchase_stats.total_purchase_amount) - float(transaction_stats.total_paid_amount)
-    credit_percentage = (total_credit_amount / float(purchase_stats.total_purchase_amount) * 100) \
-        if purchase_stats.total_purchase_amount else 0
+        # Recent purchase amount
+        recent_purchase_amount = db.query(SupplierPurchase.total_amount) \
+            .filter(SupplierPurchase.supplier_id == supplier_id) \
+            .order_by(SupplierPurchase.purchase_date.desc()) \
+            .limit(1).scalar() or 0.0
 
-    return {
-        "supplier_id": supplier_id,
-        "total_purchases": purchase_stats.total_purchases or 0,
-        "total_purchase_amount": float(purchase_stats.total_purchase_amount or 0),
-        "total_paid_amount": float(transaction_stats.total_paid_amount or 0),
-        "total_credit_amount": round(total_credit_amount, 2),
-        "credit_percentage": round(credit_percentage, 2),
-        "total_transactions": transaction_stats.total_transactions or 0,
-        "last_purchase_date": purchase_stats.last_purchase_date,
-        "avg_purchase_value": round(float(purchase_stats.avg_purchase_value or 0), 2),
-        "largest_purchase": round(float(purchase_stats.largest_purchase or 0), 2)
-    }
+        transaction_stats = db.query(
+            func.count(SupplierTransaction.id).label("total_transactions"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (SupplierTransaction.payment_method != OrderPaymentMethod.CREDIT, SupplierTransaction.amount),
+                        else_=0
+                    )
+                ),
+                0
+            ).label("total_paid_amount"),
+            func.max(SupplierTransaction.transaction_date).label("last_transaction_date"),
+        ).filter(
+            SupplierTransaction.supplier_id == supplier_id
+        ).first()
+
+        # Safe values
+        total_purchase_amount = float(getattr(purchase_stats, "total_purchase_amount", 0) or 0)
+        total_paid_amount = float(getattr(transaction_stats, "total_paid_amount", 0) or 0)
+        total_credit_amount = total_purchase_amount - total_paid_amount
+        credit_percentage = (total_credit_amount / total_purchase_amount * 100) if total_purchase_amount else 0
+
+        return {
+            "supplier": supplier,
+            "total_purchases": getattr(purchase_stats, "total_purchases", 0) or 0,
+            "total_purchase_amount": total_purchase_amount,
+            "total_paid_amount": total_paid_amount,
+            "total_credit_amount": round(total_credit_amount, 2),
+            "credit_percentage": round(credit_percentage, 2),
+            "total_transactions": getattr(transaction_stats, "total_transactions", 0) or 0,
+            "last_purchase_date": getattr(purchase_stats, "last_purchase_date", None),
+            "last_transaction_date": getattr(transaction_stats, "last_transaction_date", None),
+            "first_purchase_date": getattr(purchase_stats, "first_purchase_date", None),
+            "avg_purchase_value": round(float(getattr(purchase_stats, "avg_purchase_value", 0) or 0), 2),
+            "largest_purchase": round(float(getattr(purchase_stats, "largest_purchase", 0) or 0), 2),
+            "recent_purchase_amount": round(float(recent_purchase_amount), 2),
+        }
+    except Exception as e:
+        raise Exception(str(e))
+
 
 def get_supplier_purchases(db: Session, filters:SupplierPurchaseFilters):
     query = db.query(SupplierPurchase)
     
+    if filters.supplier_id:
+        query = query.filter(SupplierPurchase.supplier_id == filters.supplier_id)
     if filters.search:
         query = query.filter(or_(
             SupplierPurchase.purchase_number.like(f"%{filters.search}%")
@@ -935,7 +967,8 @@ def get_supplier_purchase_detail(db: Session, purchase_id:int):
 
 def get_supplier_transactions(db: Session, filters:SupplierTransactionFilters):
     query = db.query(SupplierTransaction)
-    
+    if filters.supplier_id:
+        query = query.filter(SupplierTransaction.supplier_id == filters.supplier_id)
     if filters.purchase_id:
         query = query.filter(SupplierTransaction.purchase_id == filters.purchase_id)
     if filters.payment_method:

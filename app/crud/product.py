@@ -378,15 +378,6 @@ def get_product_dropdown(db:Session,is_parent:bool,search:str,current_user:User)
     # Only Top Level Product
     if is_parent:
         query = query.filter(Product.parent_product_id.is_(None))
-    else:
-        query = query.filter(
-            not_(
-                and_(
-                    Product.parent_product_id.is_not(None),
-                    Product.is_product_variant.is_(True)
-                )
-            )
-        )
         
     if search:
         search = search.lower()

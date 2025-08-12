@@ -6,10 +6,10 @@ class AddEditSupplier(BaseModel):
     name:Optional[str] = None
     isd_code:Optional[str] = None
     phone:Optional[str] = None
-    email:Optional[int] = None
-    address:Optional[int] = None
-    pan_number:Optional[int] = None
-    gst_number:Optional[int] = None
+    email:Optional[str] = None
+    address:Optional[str] = None
+    pan_number:Optional[str] = None
+    gst_number:Optional[str] = None
     
     notes:Optional[str] = None
 
@@ -51,6 +51,7 @@ class SupplierFilters(BaseModel):
     sort_dir:str = 'desc'
 
 class SupplierPurchaseFilters(BaseModel):
+    supplier_id:Optional[int] = None
     search:Optional[str] = None
     from_date:Optional[date] = None
     to_date:Optional[date] = None
@@ -60,11 +61,12 @@ class SupplierPurchaseFilters(BaseModel):
     sort_dir:str = 'desc'
 
 class SupplierTransactionFilters(BaseModel):
+    supplier_id:Optional[int] = None
     purchase_id:Optional[str] = None
     payment_method:Optional[str] = None
     from_date:Optional[date] = None
     to_date:Optional[date] = None
     page:int
     page_size:int
-    sort_by:str = 'created_at'
+    sort_by:str = 'transaction_date'
     sort_dir:str = 'desc'
