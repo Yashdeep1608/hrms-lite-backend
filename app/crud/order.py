@@ -21,7 +21,7 @@ from app.models.contact import BusinessContact, BusinessContactLedger, Contact
 from app.models.coupon import Coupon
 from app.models.enums import CartOrderSource, CartOrderStatus, CartStatus, OrderPaymentMethod, OrderPaymentStatus, RoleTypeEnum
 from app.models.order import Order, OrderActionLog, OrderDeliveryDetail, OrderPayment, OrderStatusLog
-from app.models.product import Product
+from app.models.product import Product, ProductBatch
 from app.models.service import Service, ServiceBookingLog
 from app.models.user import User
 from app.schemas.cart import AddToCart, AssignCartContact, CartEntities
@@ -184,15 +184,22 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
                     })()
                     required_service_qty.append((fake_item, fake_item.date))
 
-    # 2. Validate product stocks all at once
+    # 2. Validate product stocks all at once (batch-based)
     for product_id, total_qty in required_product_qty.items():
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise ValueError(f"Product {product_id} not found")
-        if product.stock_qty is None:
-            continue  # skip untracked products
-        if product.stock_qty < total_qty:
-            raise ValueError(f"Insufficient stock for product: {product.name}")
+
+        # Sum available quantity from all batches
+        available_qty = (
+            db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+            .filter(ProductBatch.product_id == product_id, ProductBatch.quantity > 0, ProductBatch.is_expired == False)
+            .scalar()
+        )
+
+        if available_qty < total_qty:
+            raise ValueError(f"Insufficient stock for product: {product.name} (Available: {available_qty}, Required: {total_qty})")
+
 
     # 3. Validate service capacities
     for item, date in required_service_qty:
@@ -221,25 +228,35 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
     # 5. Mutation phase: now reduce stocks, add logs and bookings
 
     def reduce_product_stock(product_id: int, quantity: int):
-        product = db.query(Product).filter(Product.id == product_id).first()
-        if product.stock_qty is None:
-            return
-
-        stock_before = product.stock_qty
-        stock_after = stock_before - quantity
-        product.stock_qty = stock_after
-
-        add_product_stock_log(
-            db=db,
-            product_id=product.id,
-            quantity=quantity,
-            is_stock_in=False,
-            stock_before=stock_before,
-            stock_after=stock_after,
-            source="order",
-            source_id=order_id,
-            created_by=cart.created_by_user_id
+        batches = (
+            db.query(ProductBatch)
+            .filter(ProductBatch.product_id == product_id, ProductBatch.stock_qty > 0, ProductBatch.is_expired == False)
+            .order_by(ProductBatch.expiry_date.asc(), ProductBatch.created_at.asc())
+            .all()
         )
+
+        qty_to_reduce = quantity
+        for batch in batches:
+            if qty_to_reduce <= 0:
+                break
+
+            reduce_qty = min(batch.quantity, qty_to_reduce)
+            stock_before = batch.quantity
+            batch.quantity -= reduce_qty
+            qty_to_reduce -= reduce_qty
+
+            add_product_stock_log(
+                db=db,
+                product_id=product_id,
+                batch_id=batch.id,
+                quantity=reduce_qty,
+                is_stock_in=False,
+                stock_before=stock_before,
+                stock_after=batch.quantity,
+                source="order",
+                source_id=order_id,
+            )
+
 
     def log_service_booking(service_id: int, quantity: int, date, in_combo=False):
         booking_log = ServiceBookingLog(
@@ -760,210 +777,6 @@ def assign_cart_contact(db: Session, payload: AssignCartContact, current_user: U
     db.refresh(cart)
 
     return True
-
-    
-# def apply_offer(db:Session,cart:Cart,is_auto_apply:bool = False,offer_id:int = None):
-#     cart_items = db.query(CartItem).filter(CartItem.cart_id == cart.id).all()
-#     total_cart_value = sum(item.final_price * item.quantity for item in cart_items)
-#     is_first_order = False
-#     if is_auto_apply and cart.business_contact_id:
-#         order = db.query(Order).filter(
-#             Order.business_contact_id == cart.business_contact_id,
-#             Order.status == CartOrderStatus.COMPLETED,
-#         ).first()
-#         if not order:
-#             is_first_order = True
-
-#     def get_applicable_offer(offer_type, condition_type, cart_items=None,cart_total = None):
-#         query = db.query(Offer.id).join(OfferCondition).filter(
-#             Offer.auto_apply.is_(True),
-#             Offer.is_active.is_(True),
-#             Offer.offer_type == offer_type,
-#             OfferCondition.condition_type == condition_type,
-#         )
-
-#         if offer_type == OfferType.BUY_X_GET_Y and condition_type == OfferConditionType.PRODUCT and cart_items:
-#             product_ids_in_cart = [item.item_id for item in cart_items if item.item_type == 'product']
-
-#             # Match offer where item_ids overlap with cart product ids
-#             query = query.filter(
-#                 or_(
-#                     OfferCondition.value["item_ids"].contains(product_ids_in_cart),  # Postgres JSONB contains operator
-#                     OfferCondition.value["item_value"].in_(product_ids_in_cart)      # fallback if item_value is used instead
-#                 )
-#             )
-        
-#         if offer_type == OfferType.CART_VALUE_BASED and condition_type == OfferConditionType.CART_TOTAL and cart_total:
-#             query = query.filter(
-#                 or_(
-#                     and_(
-#                         OfferCondition.operator == "between",
-#                         OfferCondition.value["min"].as_float() <= cart_total,
-#                         OfferCondition.value["max"].as_float() >= cart_total,
-#                     ),
-#                     and_(
-#                         OfferCondition.operator == "gte",
-#                         OfferCondition.value["min"].as_float() <= cart_total,
-#                     ),
-#                     and_(
-#                         OfferCondition.operator == "lte",
-#                         OfferCondition.value["max"].as_float() >= cart_total,
-#                     )
-#                 )
-#             )
-
-#         if offer_type == OfferType.TIME_LIMITED and condition_type == OfferConditionType.TIME_WINDOW:
-#             now = datetime.now(timezone.utc)
-
-#             query = query.filter(
-#                 and_(
-#                     OfferCondition.value["datetime"].astext.cast(DateTime) <= now,
-#                     OfferCondition.value["end_datetime"].astext.cast(DateTime) >= now,
-#                 )
-#             )
-            
-#         return query.order_by(Offer.created_at.desc()).scalar()
-        
-#     # Priority 1: First Order Offer
-#     if is_first_order:
-#         offer_id = get_applicable_offer(OfferType.CUSTOMER_BASED,OfferConditionType.FIRST_ORDER)
-
-#     # Priority 2: Buy X Get Y on Product
-#     if is_auto_apply and offer_id is None:
-#         offer_id = get_applicable_offer(OfferType.BUY_X_GET_Y,OfferConditionType.PRODUCT,cart_items=cart_items)
-    
-#     # Priority 3: Cart Value Based
-#     if is_auto_apply and offer_id is None:
-#         offer_id = get_applicable_offer(OfferType.CART_VALUE_BASED,OfferConditionType.CART_TOTAL,cart_total=total_cart_value)
-
-#     # Priority 4: Time Limited Offer
-#     if is_auto_apply and offer_id is None:
-#         offer_id = get_applicable_offer(OfferType.TIME_LIMITED,OfferConditionType.TIME_WINDOW)
-
-#     if is_auto_apply and  offer_id is None:
-#         raise ValueError("No applicable offer found")
-    
-#     if not is_auto_apply and offer_id is not None:
-#         offer = db.query(Offer).filter(Offer.id == offer_id).first()
-#         if not check_offer_applicable(offer, cart_items, total_cart_value, cart.business_contact_id, now=datetime.now(timezone.utc)):
-#             raise ValueError("Selected offer is not applicable to this cart.")
-
-# def check_offer_applicable(
-#     offer: Offer,
-#     cart_items: list,
-#     cart_total: float,
-#     business_contact_id: UUID,
-#     now: datetime,
-# ) -> bool:
-#     if not offer.is_active:
-#         return False
-
-#     condition = offer.condition[0]
-#     offer_type = OfferType(offer.offer_type)
-#     condition_type = OfferConditionType(condition.condition_type)
-#     value = condition.value or {}
-#     operator = condition.operator
-
-#     # === 1. Flat / Percentage Discount on Cart Total ===
-#     if offer_type == OfferType.FLAT_DISCOUNT and condition_type == OfferConditionType.CART_TOTAL:
-#         if not cart_total:
-#             return False
-#         return check_numeric_operator(operator, cart_total, value)
-
-#     # === 2. Flat / Percentage Discount on Product ===
-#     if offer_type == OfferType.PERCENTAGE_DISCOUNT and condition_type in [OfferConditionType.PRODUCT,OfferConditionType.SERVICE,OfferConditionType.CATEGORY,OfferConditionType.CART_TOTAL]:
-#         value_data = value
-#         target_type = value_data.get("item_type")
-#         item_ids = value_data.get("item_ids", [])
-#         item_value = value_data.get("item_value")
-
-#         if condition_type == OfferConditionType.CART_TOTAL:
-#             return check_numeric_operator(operator, cart_total, value)
-
-#         if operator in ("in", "not_in"):
-#             # Match any item in cart based on item_type and item_id
-#             match_found = any(
-#                 str(item.item_type) == target_type and str(item.item_id) in item_ids
-#                 for item in cart_items
-#             )
-#             return match_found if operator == "in" else not match_found
-
-#         elif operator == "equal":
-#             # Check if any item in cart matches specific item_id
-#             return any(
-#                 str(item.item_type) == target_type and str(item.item_id) == str(item_value)
-#                 for item in cart_items
-#             )
-
-#     # === 3. Cart Value Based: Cart Total ===
-#     if offer_type == OfferType.CART_VALUE_BASED and condition_type == OfferConditionType.CART_TOTAL:
-#         return check_numeric_operator(operator, cart_total, value)
-
-#     # === 4. Cart Value Based: Product ===
-#     if offer_type == OfferType.CART_VALUE_BASED and condition_type == OfferConditionType.PRODUCT:
-#         product_ids = value.get("product_ids", [])
-#         return any(str(item.product_id) in product_ids for item in cart_items)
-
-#     # === 5. Cart Value Based: Payment Method ===
-#     if offer_type == OfferType.CART_VALUE_BASED and condition_type == OfferConditionType.PAYMENT_METHOD:
-#         return True  # Payment method to be validated later
-
-#     # === 6. Buy X Get Y: Product ===
-#     if offer_type == OfferType.BUY_X_GET_Y and condition_type == OfferConditionType.PRODUCT:
-#         product_ids = value.get("product_ids", [])
-#         min_qty = value.get("min_qty", 1)
-#         for item in cart_items:
-#             if str(item.product_id) in product_ids and item.quantity >= min_qty:
-#                 return True
-#         return False
-
-#     # === 7. Bundle Pricing ===
-#     if offer_type == OfferType.BUNDLE_PRICING and condition_type == OfferConditionType.PRODUCT:
-#         bundle_products = value.get("product_ids", [])
-#         bundle_set = set(bundle_products)
-#         cart_set = set(str(item.product_id) for item in cart_items)
-#         return bundle_set.issubset(cart_set)
-
-#     # === 8. Time Limited: Product ===
-#     if offer_type == OfferType.TIME_LIMITED and condition_type == OfferConditionType.PRODUCT:
-#         product_ids = value.get("product_ids", [])
-#         return any(str(item.product_id) in product_ids for item in cart_items)
-
-#     # === 9. Time Limited: Time Window ===
-#     if offer_type == OfferType.TIME_LIMITED and condition_type == OfferConditionType.TIME_WINDOW:
-#         start = parse_datetime(value.get("datetime"))
-#         end = parse_datetime(value.get("end_datetime"))
-#         return start <= now <= end
-
-#     # === 10. Customer Based: First Order ===
-#     if offer_type == OfferType.CUSTOMER_BASED and condition_type == OfferConditionType.FIRST_ORDER:
-#         return getattr(business_contact_id, "is_first_order", False)
-
-#     # === 11. Customer Based: Contact Tag ===
-#     if offer_type == OfferType.CUSTOMER_BASED and condition_type == OfferConditionType.CONTACT_TAG:
-#         tag_ids = value.get("tag_ids", [])
-#         return any(str(tag.id) in tag_ids for tag in getattr(user, "tags", []))
-
-#     # === 12. Customer Based: Contact Group ===
-#     if offer_type == OfferType.CUSTOMER_BASED and condition_type == OfferConditionType.CONTACT_GROUP:
-#         group_ids = value.get("group_ids", [])
-#         return any(str(group.id) in group_ids for group in getattr(user, "groups", []))
-
-#     return False
-
-# def check_numeric_operator(operator: str, cart_total: float, value: dict) -> bool:
-#     if operator == "between":
-#         return value.get("min", 0) <= cart_total <= value.get("max", float('inf'))
-#     elif operator == "gte":
-#         return cart_total >= value.get("min", 0)
-#     elif operator == "lte":
-#         return cart_total <= value.get("max", float('inf'))
-#     return False
-
-# def parse_datetime(dt_str):
-#     if not dt_str:
-#         return datetime.min.replace(tzinfo=timezone.utc)
-#     return datetime.fromisoformat(dt_str)
 
 def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, current_user: User = None):
     try:

@@ -375,7 +375,7 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('description', sa.String(length=1000), nullable=True),
     sa.Column('image_url', sa.String(), nullable=False),
-    sa.Column('is_product_variant', sa.Boolean(), nullable=True),
+    sa.Column('is_variant', sa.Boolean(), nullable=True),
     sa.Column('parent_product_id', sa.Integer(), nullable=True),
     sa.Column('category_id', sa.Integer(), nullable=False),
     sa.Column('subcategory_path', sa.ARRAY(sa.Integer()), nullable=True),

@@ -1,13 +1,14 @@
+from datetime import date
 from decimal import Decimal
 from slugify import slugify
-from sqlalchemy import any_, not_, or_,func,and_, select
+from sqlalchemy import any_, distinct, not_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
 from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
-from app.models.enums import ProductStockSource
-from app.models.product import Product, ProductCustomField, ProductCustomFieldValue, ProductImage, ProductMasterData, ProductStockLog
+from app.models.enums import ProductStockSource, ProductStockStatus
+from app.models.product import *
 from app.models.user import User
-from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
+from app.schemas.product import *
 from typing import Optional, Tuple, List
 import hashlib
 from sqlalchemy.orm import subqueryload
@@ -17,8 +18,7 @@ def hash_sku(company_key: str, product_id: int) -> str:
     hash_str = hashlib.sha1(raw.encode()).hexdigest().upper()
     # Remove non-alphanumeric if needed, take first 12 chars
     return ''.join(filter(str.isalnum, hash_str))[:12]
-
-def calculate_final_price(product):
+def calculate_final_price(product:Product):
     selling_price = product.selling_price or Decimal(0)
     discount_type = product.discount_type
     discount_value = product.discount_value or Decimal(0)
@@ -48,15 +48,11 @@ def calculate_final_price(product):
     if final_price < 0:
         final_price = 0
     return round(final_price, 2)
-
-def generate_unique_slug(db: Session, name: str, business_id: int) -> str:
-    base_slug = slugify(name)  # "second"
-    slug = base_slug
-    index = 1
-    while db.query(Product).filter(Product.slug == slug, Product.business_id == business_id).first():
-        slug = f"{base_slug}-{index}"
-        index += 1
-    return slug
+def generate_batch_code(business_id: int, product_id: int, batch_number: int = 1) -> str:
+    product_code = hex(product_id)[2:].upper()  # e.g., product_id=123 -> '7B'
+    batch_seq = f"{batch_number:02d}"
+    batch_code = f"B{hex(business_id)[2:].upper()}-P{product_code}-{batch_seq}"
+    return batch_code
 
 def create_product(db: Session, product_in: ProductCreate, current_user: User):
     parent_product = None
@@ -67,41 +63,43 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
 
     def inherit(field_name, fallback=None):
         return getattr(product_in, field_name, None) or (getattr(parent_product, field_name) if parent_product else fallback)
-
-    # Generate slug from name or first available name
-    slug = generate_unique_slug(db, product_in.name, current_user.business_id)
-
+    
     product = Product(
+        
+        business_id=current_user.business_id,
+        created_by_user_id=current_user.id,
+        parent_product_id=product_in.parent_product_id,
+        is_variant=product_in.is_variant,
+
         name=product_in.name,
-        slug=slug,
         description=product_in.description or None,
+        image_url=inherit("image_url"),
+        is_active=product_in.is_active or False,
+        is_deleted=False,
+        is_online=product_in.is_online or False,
+        selling_price=product_in.selling_price,
+        low_stock_alert=product_in.low_stock_alert,
+        
         category_id=inherit("category_id"),
         subcategory_path=inherit("subcategory_path"),
+        tags=product_in.tags,
+        
         base_unit=inherit("base_unit"),
         package_type=inherit("package_type"),
-        stock_qty=product_in.stock_qty,
-        low_stock_alert=product_in.low_stock_alert,
-        purchase_price=product_in.purchase_price,
-        selling_price=product_in.selling_price,
+        unit_weight=product_in.unit_weight,
+        unit_volume=product_in.unit_volume,
+        dimensions=product_in.dimensions,
+        
         discount_type=product_in.discount_type,
         discount_value=product_in.discount_value,
         max_discount=product_in.max_discount,
         include_tax=inherit("include_tax", False),
         tax_rate=inherit("tax_rate", 0.0),
         hsn_code=inherit("hsn_code"),
-        image_url=inherit("image_url"),
+       
         brand=inherit("brand"),
         manufacturer=inherit("manufacturer"),
-        packed_date=product_in.packed_date,
-        expiry_date=product_in.expiry_date,
-        is_product_variant=product_in.is_product_variant,
-        is_active=product_in.is_active or False,
-        is_deleted=False,
-        is_online=product_in.is_online or False,
-        parent_product_id=product_in.parent_product_id,
-        business_id=current_user.business_id,
-        tags=product_in.tags,
-        created_by_user_id=current_user.id
+        origin_country=product_in.origin_country or "India"
     )
 
     db.add(product)
@@ -110,9 +108,10 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
     # Generate SKU, barcode, QR
     business = db.query(Business).filter(Business.id == current_user.business_id).first()
     company_key = business.business_key if business and business.business_key else "UNKNOWN"
+    product.slug = f"{slugify(product.name)}-{hex(product.id)[2:]}"
     product.sku = hash_sku(company_key, product.id)
     product.barcode = generate_barcode(product.sku)
-    product.qr_code = generate_qr_code(product.sku)
+    product.qrcode = generate_qr_code(product.sku)
 
     # Only add images if not a variant
     if product_in.images and not product_in.parent_product_id:
@@ -133,89 +132,74 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
         )
         db.add(cf_value)
 
+    # Add Product Batch
+    product_batch = ProductBatch(
+        product_id = product.id,
+        batch_code = generate_batch_code(current_user.business_id,product.id,1),
+        purchase_price = product_in.purchase_price,
+        quantity = product_in.quantity,
+        packed_date = product_in.packed_date,
+        expiry_date = product_in.expiry_date
+    )
+    db.add(product_batch)
     # Recursively create variants
     for variant_data in product_in.variants or []:
         variant_data.parent_product_id = product.id
-        variant_data.is_product_variant = True
+        variant_data.is_variant = True
         create_product(db, variant_data, current_user)
 
     db.commit()
     db.refresh(product)
     return product
 
-
 def update_product(db: Session, product_id: int, product_in: ProductUpdate, current_user: User):
-    product = db.query(Product).filter(Product.id == product_id, Product.business_id == current_user.business_id).first()
+    # Fetch product
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.business_id == current_user.business_id
+    ).first()
     if not product:
         raise Exception("Product not found")
 
-    # 🔁 Update product fields (excluding variants, images, custom fields)
-    updatable_fields = [
-        "name", "description", "category_id", "subcategory_path", "base_unit", "stock_qty",
-        "low_stock_alert", "purchase_price", "selling_price", "discount_type", "discount_value",
-        "max_discount", "include_tax", "tax_rate", "hsn_code", "brand", "manufacturer",
-        "packed_date", "expiry_date", "is_product_variant", "is_active", "is_online", "parent_product_id","tags"
+    # Only update fields that are allowed
+    update_data = product_in.model_dump(exclude_unset=True)
+    allowed_fields = [
+        "name", "description", "image_url", "is_active", "is_online",
+        "tags", "selling_price", "discount_type", "discount_value", "max_discount",
+        "include_tax", "tax_rate", "category_id", "subcategory_path",
+        "base_unit", "package_type", "unit_weight", "unit_volume", "dimensions",
+        "brand", "manufacturer", "origin_country"
     ]
-    for field in updatable_fields:
-        if hasattr(product_in, field):
-            setattr(product, field, getattr(product_in, field))
 
-    # 🔁 Update subcategory_id from subcategory_path
-    product.subcategory_path = product_in.subcategory_path if product_in.subcategory_path else None
+    for field, value in update_data.items():
+        if field in allowed_fields:
+            setattr(product, field, value)
 
-    # 🔁 Update images (only for non-variant products)
-    if not product.parent_product_id:
+    # Regenerate slug if name changed
+    if "name" in update_data:
+        product.slug = f"{slugify(product.name)}-{hex(product.id)[2:]}"
+
+    # Update images (only for non-variant products)
+    if "images" in update_data and not product.parent_product_id:
         db.query(ProductImage).filter(ProductImage.product_id == product.id).delete()
-        for img in product_in.images or []:
-            image = ProductImage(
+        for img in update_data["images"]:
+            db.add(ProductImage(
                 product_id=product.id,
                 media_url=img.media_url,
-                media_type=img.media_type,
-            )
-            db.add(image)
+                media_type=img.media_type
+            ))
 
-    # 🔁 Update custom field values
-    db.query(ProductCustomFieldValue).filter(ProductCustomFieldValue.product_id == product.id).delete()
-    for cfv in product_in.custom_field_values or []:
-        cf_value = ProductCustomFieldValue(
-            product_id=product.id,
-            field_id=cfv.field_id,
-            value=cfv.value
-        )
-        db.add(cf_value)
+    # Update custom field values
+    if "custom_field_values" in update_data:
+        db.query(ProductCustomFieldValue).filter(ProductCustomFieldValue.product_id == product.id).delete()
+        for cfv in update_data["custom_field_values"]:
+            db.add(ProductCustomFieldValue(
+                product_id=product.id,
+                field_id=cfv.field_id,
+                value=str(cfv.value) or None
+            ))
 
-    # 🔁 Update child variants
-    existing_variants = db.query(Product).filter(Product.parent_product_id == product.id).all()
-    existing_variant_map = {v.id: v for v in existing_variants}
-
-    # 🔁 Update child variants only if this is a variant-enabled product
-    received_variant_ids = []
-
-    if product.is_product_variant:
-        existing_variants = db.query(Product).filter(Product.parent_product_id == product.id).all()
-        existing_variant_map = {v.id: v for v in existing_variants}
-
-        for variant_data in product_in.variants or []:
-            variant_dict = variant_data.model_dump()  # Converts to dict
-            variant_update = ProductUpdate(**variant_dict)  # Cast to ProductUpdate with id
-
-            if variant_update.id and variant_update.id in existing_variant_map:
-                variant_update.is_product_variant = True
-                update_product(db, variant_update.id, variant_update, current_user)
-                received_variant_ids.append(variant_update.id)
-            else:
-                variant_update.parent_product_id = product.id
-                variant_update.is_product_variant = True
-                new_variant = create_product(db, variant_update, current_user)
-                received_variant_ids.append(new_variant.id)
-
-        # 🗑️ Delete removed variants
-        for variant in existing_variants:
-            if variant.id not in received_variant_ids:
-                db.query(ProductImage).filter(ProductImage.product_id == variant.id).delete()
-                db.query(ProductCustomFieldValue).filter(ProductCustomFieldValue.product_id == variant.id).delete()
-                db.delete(variant)
-
+    # Commit changes
     db.commit()
     db.refresh(product)
     return product
@@ -232,83 +216,40 @@ def toggle_product_status(db: Session, status_type:str ,product_id: int):
     return product
 
 def get_product_details(db: Session, product_id: int):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        return None
-
-    # Step 1: Classify product type
-    is_variant = product.is_product_variant and product.parent_product_id is not None
-    is_linked = not product.is_product_variant and product.parent_product_id is not None
-    is_base = not product.parent_product_id  # Any top-level product
-
-    # Step 2: Determine main product to return
-    main_product_id = product.parent_product_id if is_variant else product.id
-
-    # Step 3: Build load options
-    load_options = [
-        subqueryload(Product.images),
-        subqueryload(Product.custom_field_values),
-    ]
-
-    # ✅ Only load variants if base and explicitly marked as variantable
-    should_load_variants = (
-        not product.parent_product_id and product.is_product_variant
-    )
-
-    if should_load_variants:
-        load_options.extend([
-            subqueryload(Product.variants).joinedload(Product.custom_field_values),
-        ])
-
+    # Fetch main product
     main_product = (
         db.query(Product)
-        .options(*load_options)
-        .filter(Product.id == main_product_id)
+        .options(
+            subqueryload(Product.images),
+            subqueryload(Product.custom_field_values),
+            subqueryload(Product.batches),
+            subqueryload(Product.pack_options),
+            subqueryload(Product.stock_logs),
+            subqueryload(Product.variants).joinedload(Product.custom_field_values),
+        )
+        .filter(Product.id == product_id)
         .first()
     )
 
-    # Step 4: Always return empty variants list if no variants loaded
-    if should_load_variants:
-        if not main_product.variants:
-            main_product.variants = []
-    else:
-        main_product.variants = []  # Ensure clean for UI
+    if not main_product:
+        return None
 
-    # Step 5: Attach linked_products (lightweight)
-    linked_products = []
-
-    if is_linked:
-        # Current product is a child (e.g. 27), get parent and siblings
-        parent = db.query(Product).filter(Product.id == product.parent_product_id).first()
-        if parent:
-            # Add parent first
-            linked_products.append(parent)
-
-            # Add siblings (excluding the current product)
-            siblings = (
-                db.query(Product)
-                .filter(
-                    Product.parent_product_id == product.parent_product_id,
-                    Product.id != product.id,
-                    Product.is_product_variant == False  # or True if variant children expected
-                )
-                .all()
-            )
-            linked_products.extend(siblings)
-
-    elif is_base and not product.is_product_variant:
-        # Current product is a base non-variant (e.g. 26), get all children
-        children = (
-            db.query(Product)
-            .filter(
-                Product.parent_product_id == product.id,
-                Product.is_product_variant == False
-            )
-            .all()
+    # Fetch all child products (variants/children)
+    main_product.variants = (
+        db.query(Product)
+        .options(
+            subqueryload(Product.images),
+            subqueryload(Product.custom_field_values),
+            subqueryload(Product.batches),
+            subqueryload(Product.pack_options),
+            subqueryload(Product.stock_logs),
         )
-        linked_products = [p for p in children]
+        .filter(Product.parent_product_id == product_id)
+        .all()
+    )
 
-    main_product.linked_products = linked_products
+    # Sort batches and pack options for clean UI
+    main_product.batches = sorted(main_product.batches, key=lambda x: (x.expiry_date or date.max))
 
     return main_product
 
@@ -319,18 +260,21 @@ def get_product_list(
 ) -> Tuple[int, List[dict]]:
     skip = (filters.page - 1) * filters.page_size
 
-    query = db.query(Product).filter(
-    Product.business_id == current_user.business_id,
-    Product.is_deleted == False,
-    or_(
-            and_(Product.parent_product_id.is_(None), Product.is_product_variant == False),
-            and_(Product.parent_product_id.is_not(None), Product.is_product_variant == False),
-            and_(Product.parent_product_id.is_(None), Product.is_product_variant == True),
+    # Base query
+    query = (
+        db.query(Product)
+        .filter(
+            Product.business_id == current_user.business_id,
+            Product.is_deleted == False
         )
+        .options(joinedload(Product.parent))  # preload parent
     )
+
+    # Active filter
     if filters.is_active is not None:
         query = query.filter(Product.is_active == filters.is_active)
 
+    # Category filter (supports subcategories)
     if filters.category_id is not None:
         query = query.filter(
             or_(
@@ -339,26 +283,32 @@ def get_product_list(
             )
         )
 
+    # Search filter (name, description, tags array)
     if filters.search_text:
         search = f"%{filters.search_text}%"
         query = query.filter(
             or_(
                 Product.name.ilike(search),
-                Product.description.ilike(search)
+                Product.description.ilike(search),
+                func.array_to_string(Product.tags, ',').ilike(search)  # search inside tags array
             )
         )
 
     # Sorting
     sort_field = getattr(Product, filters.sort_by, Product.created_at)
-    query = query.order_by(sort_field.desc() if filters.sort_dir == 'desc' else sort_field.asc())
+    query = query.order_by(
+        sort_field.desc() if filters.sort_dir == 'desc' else sort_field.asc()
+    )
 
-    # Count and paginate
+    # Count before pagination
     total = query.count()
+
+    # Fetch results with pagination
     results = query.offset(skip).limit(filters.page_size).all()
 
-    items = []
-    for product in results:
-        items.append({
+    # Serialize response
+    items = [
+        {
             "id": product.id,
             "name": product.name,
             "sku": product.sku,
@@ -366,9 +316,12 @@ def get_product_list(
             "is_online": product.is_online,
             "created_at": product.created_at,
             "primary_image": product.image_url,
-            "is_product_variant": product.is_product_variant,
-            "parent_product_id": product.parent_product_id
-        })
+            "is_variant": product.is_variant,
+            "parent_product_id": product.parent_product_id,
+            "parent_name": product.parent.name if product.is_variant and product.parent else None
+        }
+        for product in results
+    ]
 
     return total, items
 
@@ -409,31 +362,6 @@ def delete_product(db: Session, product_id: int):
     db.commit()
     db.refresh(product)
     return product
-
-#Product Masters methods 
-def create_master_data(db: Session, payload: ProductMasterDataCreate,current_user:User):
-    data = ProductMasterData(
-        business_id = current_user.business_id,
-        type=payload.type,
-        options=payload.options,
-    )
-    db.add(data)
-    db.commit()
-    db.refresh(data)
-    return data
-
-def get_master_data_list(db: Session, current_user:User):
-    result = db.query(ProductMasterData).filter(ProductMasterData.business_id == current_user.business_id).all()
-    return result
-
-def update_master_data(db: Session,payload: ProductMasterDataUpdate):
-    data = db.query(ProductMasterData).filter(ProductMasterData.id == payload.id).first()
-    data.type = payload.type
-    data.options = payload.options
-    db.commit()
-    db.refresh(data)
-    return data
-
 
 #Product Custom Field APIs
 def create_custom_field(db: Session, payload: ProductCustomFieldCreate, current_user: User):
@@ -487,25 +415,128 @@ def delete_custom_field(db: Session, custom_field_id: int, current_user: User):
     db.commit()
     return custom_field
 
+def get_product_stats(db: Session, product_id: int, current_user: User):
+    # Get product
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id, Product.business_id == current_user.business_id)
+        .first()
+    )
+    if not product:
+        return {"error": "Product not found"}
+
+    # 1️⃣ Calculate current stock from non-expired batches
+    current_stock = (
+        db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+        .filter(
+            ProductBatch.product_id == product_id,
+            ProductBatch.is_expired == False
+        )
+        .scalar()
+    )
+
+    # 2️⃣ Stock Status
+    if current_stock <= 0:
+        stock_status = ProductStockStatus.OUT_OF_STOCK
+    elif product.low_stock_alert and current_stock <= product.low_stock_alert:
+        stock_status = ProductStockStatus.LOW_STOCK
+    else:
+        stock_status = ProductStockStatus.IN_STOCK
+
+    # 3️⃣ Average purchase price from available batches (weighted)
+    purchase_price_data = (
+        db.query(
+            func.coalesce(
+                func.sum(ProductBatch.purchase_price * ProductBatch.quantity), 0
+            ).label("total_value"),
+            func.coalesce(func.sum(ProductBatch.quantity), 0).label("total_qty")
+        )
+        .filter(
+            ProductBatch.product_id == product_id,
+            ProductBatch.is_expired == False
+        )
+        .first()
+    )
+    avg_purchase_price = (
+        Decimal(purchase_price_data.total_value) / purchase_price_data.total_qty
+        if purchase_price_data.total_qty > 0 else Decimal(0)
+    )
+
+    # 4️⃣ Final Price after Discount
+    selling_price = product.selling_price or Decimal(0)
+    if product.discount_type == "percentage":
+        discount_amount = selling_price * (product.discount_value or Decimal(0)) / 100
+    elif product.discount_type == "flat":
+        discount_amount = product.discount_value or Decimal(0)
+    else:
+        discount_amount = Decimal(0)
+
+    if product.max_discount:
+        discount_amount = min(discount_amount, product.max_discount)
+
+    final_price = selling_price - discount_amount
+
+    # 5️⃣ Tax Adjustment
+    if not product.include_tax and product.tax_rate:
+        final_price += (final_price * product.tax_rate / 100)
+
+    # 6️⃣ Profit per Unit
+    profit_per_unit = final_price - avg_purchase_price
+
+    # 7️⃣ Sales Stats from stock logs
+    stats = (
+        db.query(
+            func.count(ProductStockLog.source_id).label("total_orders"),
+            func.coalesce(func.sum(ProductStockLog.quantity), 0).label("total_qty")
+        )
+        .filter(
+            ProductStockLog.product_id == product_id,
+            ProductStockLog.source == ProductStockSource.ORDER
+        )
+        .first()
+    )
+
+    return {
+        "product_id": product.id,
+        "stock_status": stock_status,
+        "current_stock": int(current_stock),
+        "final_price": float(final_price),
+        "profit_per_unit": float(profit_per_unit),
+        "total_orders": int(stats.total_orders or 0),
+        "total_qty_sold": int(stats.total_qty or 0),
+        "total_revenue": float(float(stats.total_qty or 0) * float(final_price)),
+        "net_profit": float(int(stats.total_qty or 0) * float(profit_per_unit))
+    }
+
 def add_product_stock_log(
     db: Session,
     product_id: int,
     quantity: float,
     is_stock_in: bool,
+    batch_id:Optional[int] = None,
     stock_before: Optional[float] = None,
+    unit_price:Optional[float] = 0.00,
     stock_after: Optional[float] = None,
     source: Optional[str] = None,
     source_id: Optional[int] = None,
     created_by: Optional[int] = None,
-    notes:Optional[str] = None
+    notes: Optional[str] = None
 ) -> None:
-    # Only fetch product if stock_before not passed
+    # Only fetch product if needed
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise ValueError(f"Product with ID {product_id} not found")
+
     if stock_before is None or stock_after is None:
-        product = db.query(Product).filter(Product.id == product_id).first()
-        if not product:
-            raise ValueError(f"Product with ID {product_id} not found")
-        stock_before = product.stock_qty or 0
+        stock_before = sum(b.stock_qty for b in product.batches)  # batch-based
         stock_after = stock_before + quantity if is_stock_in else stock_before - quantity
+
+    # Determine unit price based on source
+    if not is_stock_in and unit_price <= 0:
+        # Stock out (selling) → get selling price at the moment
+        unit_price = calculate_final_price(product)
+
+    total_amount = round(unit_price * quantity, 2)
 
     # Generate note
     direction = "Stock-In" if is_stock_in else "Stock-Out"
@@ -515,6 +546,7 @@ def add_product_stock_log(
 
     log = ProductStockLog(
         product_id=product_id,
+        batch_id = batch_id,
         quantity=quantity,
         is_stock_in=is_stock_in,
         stock_before=stock_before,
@@ -523,5 +555,131 @@ def add_product_stock_log(
         source_id=source_id,
         note=note,
         created_by=created_by,
+        unit_price=unit_price,
+        total_amount=total_amount
     )
     db.add(log)
+
+def get_product_stock_logs(
+    db: Session, 
+    filters: ProductStockLogFilter, 
+    current_user: User
+):
+    
+    # Base query
+    query = db.query(ProductStockLog)
+
+    # Apply filters
+    if filters.product_id:
+        query = query.filter(ProductStockLog.product_id == filters.product_id)
+
+    if filters.source:
+        query = query.filter(ProductStockLog.source == filters.source)
+
+    if filters.from_date:
+        query = query.filter(ProductStockLog.transaction_date >= filters.from_date)
+
+    if filters.to_date:
+        query = query.filter(ProductStockLog.transaction_date <= filters.to_date)
+
+    # Total count before pagination
+    total_count = query.count()
+
+    # Sorting
+    sort_column = getattr(ProductStockLog, filters.sort_by, None)
+    if not sort_column:
+        sort_column = ProductStockLog.transaction_date  # fallback
+
+    if filters.sort_dir.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # Pagination
+    offset = (filters.page - 1) * filters.page_size
+    logs = query.offset(offset).limit(filters.page_size).all()
+
+    return {
+        "total": total_count,
+        "items": logs
+    }
+
+def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_user:User):
+    # Fetch product
+    unit_price = 0
+    product = db.query(Product).filter(Product.id == data.product_id).first()
+    if not product:
+        raise ValueError(f"Product with ID {data.product_id} not found")
+
+    is_stock_in = data.source in [
+        ProductStockSource.SUPPLY,
+        ProductStockSource.RETURN,
+        ProductStockSource.TRANSFER_IN,
+        ProductStockSource.COMBO_BREAK,
+        ProductStockSource.SYSTEM_CORRECTION,
+    ]
+    # === Batch Logic ===
+    batch = None
+    if is_stock_in:
+        batch_count = db.query(ProductBatch).filter(ProductBatch.product_id == product.id).count()
+        batch = ProductBatch(
+            product_id=data.product_id,
+            batch_code = generate_batch_code(product.business_id,product.id,batch_count+1 if batch_count else 1),
+            quantity=data.quantity,
+            purchase_price=Decimal(data.purchase_price or 0),
+            packed_date=data.packed_date,
+            expiry_date=data.expiry_date
+        )
+        db.add(batch)
+        unit_price = batch.purchase_price
+    else:
+        # Stock out → reduce from batch
+        batch = db.query(ProductBatch).filter(ProductBatch.id == data.batch_id).first()
+        if not batch:
+            raise ValueError("Batch ID is required for stock-out")
+        if batch.quantity < data.quantity:
+            raise ValueError(f"Not enough stock in batch {batch.id}")
+        batch.quantity -= data.quantity
+        unit_price = batch.quantity * calculate_final_price(Product)
+
+    db.flush()
+    stock_before = (
+        db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+        .filter(
+            ProductBatch.product_id == data.product_id,
+            ProductBatch.is_expired == False
+        )
+        .scalar()
+    )
+    # Stock log
+    add_product_stock_log(
+        db=db,
+        product_id=data.product_id,
+        quantity=data.quantity,
+        is_stock_in=is_stock_in,
+        batch_id=batch.id if batch else None,
+        stock_before=stock_before,
+        unit_price=unit_price,
+        stock_after=stock_before + data.quantity if is_stock_in else stock_before - data.quantity,
+        source=data.source,
+        source_id=data.source_id,
+        created_by=current_user.id if current_user.id else None,
+        notes=data.notes
+    )
+
+    db.commit()
+    return {
+        "product_id": product.id,
+        "batch_id": batch.id if batch else None,
+        "stock_before": stock_before,
+        "stock_after": product.stock_qty,
+        "unit_price": float(unit_price or 0)
+    }
+
+def update_product_batch(db: Session, data: ProductBatchUpdate):
+    batch = db.query(ProductBatch).filter(ProductBatch.id == data.id).first()
+    batch.expiry_date = data.expiry_date
+    batch.packed_date = data.packed_date
+    batch.is_expired = data.is_expired
+    db.commit()
+    return batch

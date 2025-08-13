@@ -40,6 +40,7 @@ def register_business(business: BusinessCreate, request: Request,db: Session = D
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("business_registration_failed", lang), error=str(e))
 
+
 @router.get("/get-category-dropdown")
 def get_category_dropdown(
     request: Request,
@@ -56,6 +57,36 @@ def get_category_dropdown(
     except Exception as e:
         return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang), error=str(e)
+        )
+
+@router.get("/get-categories")
+def get_categories(
+    request: Request,
+    search_text: Optional[str] = '',
+    is_active: Optional[bool] = None,
+    parent_id: Optional[int] = None,
+    sort_by: str = 'created_at',
+    sort_dir: str = 'desc',
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+    try:
+        result = crud_business.get_categories_by_business(
+            db=db,
+            business_id=current_user.business_id,
+            search_text=search_text,
+            is_active=is_active,
+            parent_id=parent_id,
+            sort_by=sort_by,
+            sort_dir=sort_dir
+        )
+        return ResponseHandler.success(data=jsonable_encoder(result))
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t("something_went_wrong", lang),
+            error=str(e)
         )
 
 @router.get("/{business_id}")
@@ -94,7 +125,6 @@ def update_business(business_id: int, data: BusinessUpdate, request: Request, db
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
-
 @router.delete("/{business_id}")
 def deactivate_business(business_id: int, request: Request, db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
@@ -107,38 +137,6 @@ def deactivate_business(business_id: int, request: Request, db: Session = Depend
         return ResponseHandler.success(message=translator.t("business_deactivated", lang))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
-
-@router.get("/get-categories/{business_id}")
-def get_categories(
-    business_id: int,
-    request: Request,
-    search_text: Optional[str] = '',
-    is_active: Optional[bool] = None,
-    parent_id: Optional[int] = None,
-    sort_by: str = 'created_at',
-    sort_dir: str = 'desc',
-    db: Session = Depends(get_db)
-):
-    lang = get_lang_from_request(request)
-    try:
-        result = crud_business.get_categories_by_business(
-            db=db,
-            business_id=business_id,
-            search_text=search_text,
-            is_active=is_active,
-            parent_id=parent_id,
-            sort_by=sort_by,
-            sort_dir=sort_dir
-        )
-        return ResponseHandler.success(data=jsonable_encoder(result))
-
-    except Exception as e:
-        return ResponseHandler.bad_request(
-            message=translator.t("something_went_wrong", lang),
-            error=str(e)
-        )
-
 
 @router.post("/create-category")
 def create_category(category:CategoryCreateUpdate,request:Request,db:Session = Depends(get_db)):

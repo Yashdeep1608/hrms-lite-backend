@@ -14,7 +14,7 @@ class Cart(Base):
     source = Column(Enum(CartOrderSource), nullable=False,index=True)
     cart_status = Column(Enum(CartStatus), nullable=False, default=CartStatus.ACTIVE, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
+    
     coupon_id = Column(Integer, ForeignKey("coupons.id"), nullable=True)
     coupon_discount = Column(Numeric(10, 2), default=0)
     coupon_removed = Column(Boolean,default=False)

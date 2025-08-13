@@ -7,7 +7,7 @@ from app.crud import product as crud_product
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
-from app.schemas.product import ProductCreate, ProductCustomFieldCreate, ProductCustomFieldUpdate, ProductFilters, ProductMasterDataCreate, ProductMasterDataUpdate, ProductUpdate
+from app.schemas.product import *
 
 
 router = APIRouter(
@@ -28,7 +28,6 @@ def create_product(product_in: ProductCreate, request:Request ,db: Session = Dep
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
-
 
 @router.put("/update-product/{product_id}")
 def update_product(product_id:int,request:Request ,product_in: ProductUpdate, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
@@ -102,38 +101,6 @@ def toggle_product_status(product_id: int,request:Request ,db: Session = Depends
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
     
-
-# Master Data APIs
-@router.post("/create-master-data")
-def create_master_data(payload: ProductMasterDataCreate, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
-    lang = get_lang_from_request(request)
-    try:
-        data = crud_product.create_master_data(db, payload,current_user)
-        return ResponseHandler.success(message=translator.t("created_successfully", lang), data=jsonable_encoder(data))
-    except Exception as e:
-        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
-
-@router.get("/get-master-data")
-def get_master_data(request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
-    lang = get_lang_from_request(request)
-    try:
-        data = crud_product.get_master_data_list(db,current_user)
-        return ResponseHandler.success(data=jsonable_encoder(data))
-    except Exception as e:
-        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
-
-@router.post("/update-master-data")
-def update_master_data(payload: ProductMasterDataUpdate, request: Request, db: Session = Depends(get_db)):
-    lang = get_lang_from_request(request)
-    try:
-        data = crud_product.update_master_data(db,payload)
-        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(data))
-    except Exception as e:
-        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-
-
 # Custom Field APIs 
 @router.post("/create-custom-field")
 def create_custom_field(payload: ProductCustomFieldCreate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -168,5 +135,43 @@ def delete_custom_field(custom_field_id: int, request: Request, db: Session = De
     try:
         data = crud_product.delete_custom_field(db, custom_field_id, current_user)
         return ResponseHandler.success(message=translator.t("deleted_successfully", lang), data={"id": data.id})
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.get("/get-product-stats/{product_id}")
+def get_product_stats(product_id:int,request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.get_product_stats(db,product_id,current_user)
+        return ResponseHandler.success(data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.post("/get-stock-logs")
+def get_product_stock_logs(request: Request,filters:ProductStockLogFilter,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.get_product_stock_logs(db, filters,current_user)
+        # if not items:
+        #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
+        return ResponseHandler.success(data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
+    
+@router.post("/update-product-stock")
+def update_product_stock(payload: ProductStockUpdateSchema, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.update_product_stock(db, payload, current_user)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.post("/update-product-batch")
+def update_product_stock(payload: ProductBatchUpdate, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.update_product_batch(db, payload)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

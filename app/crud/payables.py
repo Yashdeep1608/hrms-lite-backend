@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 import uuid
 from sqlalchemy import case, func, or_
-from app.crud.product import add_product_stock_log
+from app.crud.product import update_product_stock
 from app.models.enums import ProductStockSource, RoleTypeEnum
 from app.models.expense import Expense, ExpenseCategory
 from app.models.loan import *
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session,joinedload
 from app.models.user import User
 from app.schemas.expense import *
 from app.schemas.loan import *
+from app.schemas.product import ProductStockUpdateSchema
 from app.schemas.supplier import *
 
 def generate_purchase_number(id:int):
@@ -787,52 +788,36 @@ def add_supplier_purchase(db: Session, payload: AddSupplierPurchase,current_user
         if not product:
             raise ValueError(f"Product {item.product_id} not found")
 
-        # Update stock
-        old_stock = product.stock_qty or 0
-        new_stock = old_stock + float(item.quantity)
-        product.stock_qty = new_stock
 
         # Prepare note details
         changes = [f"Stock-In of {item.quantity} units"]
 
         # Update tax info (only if tax provided and > 0)
+        total_purchase_price = item.unit_price
         if item.tax_rate and item.tax_rate > 0:
+            total_purchase_price = item.unit_price + (item.unit_price * item.tax_rate / 100)
             old_tax_rate = product.tax_rate
             product.tax_rate = item.tax_rate
             product.include_tax = True
             if old_tax_rate != item.tax_rate:
                 changes.append(f"Tax rate updated from {old_tax_rate or 0}% to {item.tax_rate}%")
-        
-        # Update purchase price (weighted average)
-        old_purchase_price = product.purchase_price
-        if product.purchase_price:
-            total_old_value = float(product.purchase_price) * old_stock
-            total_new_value = float(item.unit_price) * float(item.quantity)
-            total_qty = old_stock + float(item.quantity)
-            product.purchase_price = (total_old_value + total_new_value) / total_qty
-        else:
-            product.purchase_price = float(item.unit_price)
-
-        if old_purchase_price and round(old_purchase_price, 2) != round(product.purchase_price, 2):
-            changes.append(
-                f"Purchase price updated from {old_purchase_price} to {round(product.purchase_price, 2)} (weighted avg)"
-        )
 
         # Build final log note
         log_note = f"{'; '.join(changes)} from Supplier Purchase #{purchase.purchase_number}"
-
-        # Add stock log
-        add_product_stock_log(
-            db=db,
-            product_id=product.id,
-            quantity=float(item.quantity),
-            is_stock_in=True,
-            stock_before=old_stock,
-            stock_after=new_stock,
-            source=ProductStockSource.SUPPLY,
-            source_id=purchase.id,
-            created_by=current_user.id if current_user else None,
+        
+        stock_update_data = ProductStockUpdateSchema(
+            product_id=item.product_id,
+            quantity=item.quantity,
+            purchase_price = total_purchase_price,
+            source="supply",            # Must match ProductStockSource enum/string
+            source_id=payload.supplier_id,
             notes=log_note
+        )
+        # Add stock log
+        result = update_product_stock(
+            db=db,
+            data=stock_update_data,
+            current_user=current_user
         )
     
     # 3️⃣ Create Transactions
@@ -932,7 +917,6 @@ def get_supplier_summary(db: Session, supplier_id: int):
         }
     except Exception as e:
         raise Exception(str(e))
-
 
 def get_supplier_purchases(db: Session, filters:SupplierPurchaseFilters):
     query = db.query(SupplierPurchase)

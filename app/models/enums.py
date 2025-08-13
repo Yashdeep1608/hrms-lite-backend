@@ -251,4 +251,8 @@ class ProductStockSource(str,enum.Enum):
     EXPIRED = "expired"                 # Stock out due to expiration
     DEMO = "demo"                       # Stock out for samples/demos
     SYSTEM_CORRECTION = "system"        # Stock adjusted due to system-level correction
-    
+
+class ProductStockStatus(str,enum.Enum):
+    IN_STOCK = "in_stock"
+    OUT_OF_STOCK = "out_of_stock"
+    LOW_STOCK = "low_stock"

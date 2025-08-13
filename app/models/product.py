@@ -10,82 +10,97 @@ from app.db.base import Base
 from app.models.enums import ProductStockSource
 
 class Product(Base):
-    __tablename__ = 'products'
+    __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     business_id = Column(Integer, ForeignKey('businesses.id'), nullable=False)
+    parent_product_id = Column(Integer, ForeignKey("products.id"), nullable=True)  # master -> null
+    is_variant = Column(Boolean, default=False)  # optional, clarity
 
-    # Basic
-    name = Column(String(100), nullable=False)
-    description = Column(String(1000), nullable=True)
-    image_url = Column(String, nullable=False)
-    is_product_variant = Column(Boolean,default=False)
-
-    # Variant Linking / Category Linking 
-    parent_product_id = Column(Integer,ForeignKey("products.id"),nullable=True)
-    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
-    subcategory_path = Column(ARRAY(Integer))
-    
-    # Pricing and Tax
-    purchase_price = Column(Numeric(10, 2),nullable=True)
-    selling_price = Column(Numeric(10, 2),nullable=True)
-    discount_type = Column(String, nullable=True)  # e.g. "percentage", "flat"
-    discount_value = Column(Numeric, nullable=True)  # e.g. 10 for 10% or 100 for flat $100 off
-    max_discount = Column(Numeric, nullable=True)
-    include_tax = Column(Boolean, default=False)
-    tax_rate = Column(Numeric(5, 2),nullable=True)  # GST %
-    hsn_code = Column(String(10),nullable=True)     # Government classification
-    
-    # Units & Packaging
-    base_unit = Column(String(20), nullable=False)
-    package_type = Column(String(50),nullable=False)         # Example: "g", "ml", "piece"
-    stock_qty = Column(Integer,nullable=True)  
-    low_stock_alert = Column(Integer,nullable=True)
-
-    # Legal Compliance Fields
-    brand = Column(String(255),nullable=True)             # Mandatory in many sectors
-    manufacturer = Column(String(255),nullable=True)      # May be same as brand
-    packed_date = Column(Date,nullable=True)              # Packed on (optional for pre-packaged goods)
-    expiry_date = Column(Date,nullable=True)              # Expiry (for food/pharma)
-    
-
-    #Status an Field
-    is_active = Column(Boolean,default=False)
-    is_deleted = Column(Boolean,default=False)
-    is_online = Column(Boolean,default=False)
-
-
-
-    #Others 
+    # Basic Info
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
     slug = Column(String(255), unique=True, nullable=True)
     sku = Column(String(100), unique=True, nullable=True)
-    barcode = Column(String(100), unique=True, nullable=True)
-    qr_code = Column(String, nullable=True)
+    image_url = Column(String, unique=True, nullable=True)
+    barcode = Column(String, unique=True, nullable=True)
+    qrcode = Column(String, unique=True, nullable=True)
+    selling_price = Column(Numeric(10,2), nullable=True)
+    low_stock_alert = Column(Integer,default=0)
+    is_active = Column(Boolean, default=True)
+    is_online = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
 
-    tags = Column(JSONB, nullable=True) # Searching Tags
-    
-    #Audit Log
-    created_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Category / Tags
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    subcategory_path = Column(ARRAY(Integer), nullable=True)
+    tags = Column(JSONB, nullable=True)
 
-    #Time Stamp
+    # Units / Packaging
+    base_unit = Column(String(50), nullable=False)
+    package_type = Column(String(50), nullable=True)
+    unit_weight = Column(Numeric(10,2), nullable=True)
+    unit_volume = Column(Numeric(10,2), nullable=True)
+    dimensions = Column(JSONB, nullable=True)  # length, width, height
+
+    # Tax / Discount
+    discount_type = Column(String, nullable=True)
+    discount_value = Column(Numeric, nullable=True)
+    max_discount = Column(Numeric, nullable=True)
+    include_tax = Column(Boolean, default=False)
+    tax_rate = Column(Numeric(5,2), nullable=True)
+    hsn_code = Column(String(20), nullable=True)
+
+    # Brand / Manufacturer / Origin
+    brand = Column(String(255), nullable=True)
+    manufacturer = Column(String(255), nullable=True)
+    origin_country = Column(String(10), nullable=True)
+
+    # Audit
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc))
-   
-   
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    businesses = relationship("Business", back_populates="products")
-    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
-    created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_product")
-    product_category = relationship("Category", foreign_keys=[category_id], back_populates="products")
+    # Relationships
     parent = relationship(
         "Product",
         remote_side=[id],
-        lazy="select",  # or "joined" if you always need parent eagerly
-        backref=backref("variants", lazy="selectin"),
-        cascade="none"
+        backref=backref("variants", lazy="selectin")
     )
-    custom_field_values = relationship("ProductCustomFieldValue", back_populates="product", cascade="all, delete", passive_deletes=True)
+    custom_field_values = relationship("ProductCustomFieldValue", back_populates="product", cascade="all, delete")
+    batches = relationship("ProductBatch", back_populates="product", cascade="all, delete-orphan")
+    stock_logs = relationship("ProductStockLog", back_populates="product", cascade="all, delete-orphan")
+    pack_options = relationship("ProductPackOption", back_populates="product", cascade="all, delete-orphan")
+    businesses = relationship("Business", back_populates="products")
+    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
+    created_by = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_product")
+
+class ProductBatch(Base):
+    __tablename__ = "product_batches"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    batch_code = Column(String, nullable=True)
+    purchase_price = Column(Numeric(10,2), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    packed_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
+    is_expired = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    product = relationship("Product", back_populates="batches")
+    stock_logs = relationship("ProductStockLog", back_populates="batch", cascade="all, delete-orphan")
+
+class ProductPackOption(Base):
+    __tablename__ = "product_pack_options"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    pack_quantity = Column(Integer, nullable=False)  # 2, 6, etc.
+    additional_discount = Column(Numeric(10,2), nullable=True)  # optional
+
+    product = relationship("Product", back_populates="pack_options")
 
 class ProductCustomField(Base):
     __tablename__ = 'product_custom_fields'
@@ -112,17 +127,6 @@ class ProductCustomFieldValue(Base):
 
     product = relationship("Product", back_populates="custom_field_values")
     field = relationship("ProductCustomField", back_populates="values", passive_deletes=True)
-
-class ProductMasterData(Base):
-    __tablename__ = 'product_master_data'
-
-    id = Column(Integer, primary_key=True)
-    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
-    
-    type = Column(Enum('base_unit', 'package_type', 'brand', 'manufacturer', name='master_type'), nullable=False)
-    options = Column(JSONB, nullable=False)  # e.g., "ml", "Nestle", "Box", etc.
-
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
 class ProductImage(Base):
     __tablename__ = 'product_images'
@@ -138,16 +142,20 @@ class ProductImage(Base):
 class ProductStockLog(Base):
     __tablename__ = "product_stock_logs"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    batch_id = Column(Integer, ForeignKey("product_batches.id"), nullable=True)
     is_stock_in = Column(Boolean, default=False)
     quantity = Column(Integer, nullable=False)
     stock_before = Column(Integer, nullable=True)
     stock_after = Column(Integer, nullable=True)
-
-    source = Column(Enum(ProductStockSource), nullable=True)    
-    source_id = Column(Integer, nullable=True)  # order_id, return_id, etc.
-
+    source = Column(Enum(ProductStockSource), nullable=True)  # order, return, etc.
+    unit_price = Column(Numeric(10,2), nullable=True)
+    total_amount = Column(Numeric(10,2), nullable=True)
+    source_id = Column(Integer, nullable=True)
     note = Column(String, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    product = relationship("Product", back_populates="stock_logs")
+    batch = relationship("ProductBatch", back_populates="stock_logs")
