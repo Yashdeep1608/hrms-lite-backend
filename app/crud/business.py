@@ -1,3 +1,5 @@
+import random
+import string
 from sqlalchemy import asc, desc, or_
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -15,8 +17,7 @@ from app.schemas.business import BusinessCreate, BusinessUpdate, CategoryCreateU
 def get_business_by_id(db: Session, business_id: int):
     return db.query(Business).filter(
         Business.id == business_id,
-         Business.is_deleted == False,
-         Business.is_active == True
+         Business.is_deleted == False
     ).first()
 
 # Get Business by UserId
@@ -35,32 +36,27 @@ def get_business_by_key(db: Session, business_key: str):
          Business.is_active == True
     ).first()
 
-# Create Business
-def create_business(db: Session, data: BusinessCreate) -> Business:
-    unique_key = generate_unique_business_key(db, data.business_name)
+def create_business(db: Session, isd_code: str, phone_number: str) -> Business:
+    temp_key = "TMP-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
     new_business = Business(
-        business_name=data.business_name,
-        business_key = unique_key,
-        legal_name=data.legal_name,
-        business_type=data.business_type,
-        business_category=data.business_category,
-        registration_number=data.registration_number,
-        gst_number=data.gst_number,
-        pan_number=data.pan_number,
-        address_line1=data.address_line1,
-        address_line2=data.address_line2,
-        city=data.city,
-        state=data.state,
-        country=data.country,
-        postal_code=data.postal_code,
-        isd_code=data.isd_code,
-        phone_number=data.phone_number,
-        email=data.email,
-        website=data.website,
-        is_active=True,
-        is_deleted=False,
+        business_name=f"Business {phone_number}",  # placeholder name
+        business_key=temp_key,
+        isd_code=isd_code,
+        phone_number=phone_number,
+        email="your@email.com",
+        business_type="product_based",   # temporary
+        business_category=0,       # temporary
+        address_line1="",
+        address_line2="",
+        city="",
+        state="",
+        country="India",
+        postal_code="",
+        is_active=False,           # not fully active yet
+        is_deleted=False
     )
+
     db.add(new_business)
     db.commit()
     db.refresh(new_business)
@@ -73,15 +69,25 @@ def update_business(db: Session, business:Business, data: BusinessUpdate):
         for field, value in data_dict.items():
             if hasattr(business, field):
                 setattr(business, field, value)
+        
+        if not data.legal_name:
+            business.legal_name = data.business_name
 
-        business.updated_at = datetime.now(timezone.utc)
+        if not data.registration_number:
+            business.registration_number = ""
+
+        # Check if business key starts with TMP and update it
+        if business.business_key.startswith("TMP"):
+            business.business_key = generate_unique_business_key(db, business.business_name)
+            
         db.commit()
         db.refresh(business)
         return business
 
     except Exception as e:
         db.rollback()
-        raise
+        raise Exception(f"Error updating business: {str(e)}")  # <-- Raise the exception correctly
+
 # Deactivate Business
 def deactivate_business(db: Session, business: Business) -> bool:
     business = db.query(Business).filter(

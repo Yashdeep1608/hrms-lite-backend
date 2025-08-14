@@ -1,10 +1,11 @@
 from datetime import timedelta, datetime, timezone
 import random
 import string
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.user import User, UserPlan
 from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword, CreateDownlineUser,UserCreate, UserOut, UserUpdate
+from app.schemas.user import ChangePassword, CreateDownlineUser,UserCreate, UserOut, UserUpdate, VerifyOtp
 from app.core.security import *
 from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
 from app.models.permission import Permission  # Adjust import if needed
@@ -12,6 +13,7 @@ from app.models.user_permission import UserPermission  # Adjust import if needed
 from app.models.business import Business  # Adjust import if needed
 from app.schemas.business import BusinessOut
 from app.core.config import settings
+from sqlalchemy.orm import joinedload
 
 
 def generate_unique_referral_code(db: Session, length: int = 8) -> str:
@@ -24,66 +26,107 @@ def generate_unique_referral_code(db: Session, length: int = 8) -> str:
 
 # Get User by user_name
 def get_user_by_username(db: Session, username: str):
-    return db.query(User).filter(
+    return db.query(User).options(
+        joinedload(User.plans),
+        joinedload(User.business)
+    ).filter(
         User.username == username,
         User.is_deleted == False,
-        User.is_active == True
     ).first()
 
 def get_user_by_id(db: Session, user_id: int):
     return db.query(User).filter(
         User.id == user_id,
         User.is_deleted == False,
-        User.is_active == True
     ).first()
 
 # Create Ne User
-def create_user(db: Session, user_in: UserCreate):
-    hashed_password = get_password_hash(user_in.password)
+def create_user(db: Session, isd_code: str, phone_number: str, business_id: int):
+    """
+    Create a placeholder user after OTP verification with minimal info.
+    """
+    # Generate temporary username
+    temp_username = "user_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+
+    # Dummy password (hashed)
+    temp_password = get_password_hash("temp_password123")
+
+    # Generate referral code
     referral_code = generate_unique_referral_code(db)
-    
-    db_user = User(
-        first_name=user_in.first_name,
-        last_name=user_in.last_name,
-        email=user_in.email,
-        isd_code=user_in.isd_code,
-        phone_number=user_in.phone_number,
-        whatsapp_number=user_in.whatsapp_number,
-        username=user_in.username,
-        password=hashed_password,
+
+    new_user = User(
+        first_name=f"User-{phone_number}",
+        last_name="",
+        email="your@email.com",
+        isd_code=isd_code,
+        phone_number=phone_number,
+        username=temp_username,
+        password=temp_password,
         referral_code=referral_code,
         role=RoleTypeEnum.ADMIN,
-        business_id=user_in.business_id,
-        profile_image = user_in.profile_image,
-        parent_user_id = user_in.parent_user_id or None,
-        referred_by = user_in.referred_by or None,
-
+        business_id=business_id,
+        profile_image=None,
+        parent_user_id=None,
+        referred_by=None,
+        is_phone_verified = True,
+        is_active = False,
     )
-    db.add(db_user)
+
+    db.add(new_user)
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(new_user)
+    return new_user
 
 # Get User by email/phone
 def get_user_by_email_or_phone(db: Session, email_or_phone: str):
-    return db.query(User).filter(
-        (User.username == email_or_phone) | (User.phone_number == email_or_phone),User.is_deleted == False, User.is_active == True
-    ).first()
+    return (
+        db.query(User)
+        .options(joinedload(User.business))  # eager load the related Business
+        .filter(
+            ((User.username == email_or_phone) | (User.phone_number == email_or_phone)),
+            User.is_deleted == False
+        )
+        .first()
+    )
 
 # Create OTP for User
-def create_otp_for_user(otp_type: str,db: Session, user: User):
+def create_otp_for_user(
+    db: Session,
+    otp_type: str,
+    user: Optional[User] = None,
+    isd_code: Optional[str] = None,
+    phone_number: Optional[str] = None
+):
+    """
+    Create OTP for existing user OR for pre-registration (phone-based signup)
+    """
+    # OTP generation
     while True:
         otp_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
         if otp_code != settings.ADMIN_BYPASS_OTP:
             break
 
-    user_otp = UserOTP(
-        user_id=user.id,
-        otp=otp_code,
-        type= otp_type,
-        is_sent=False,
-        is_verified=False
-    )
+    if user:
+        user_otp = UserOTP(
+            user_id=user.id,
+            otp=otp_code,
+            type=otp_type,
+            is_sent=False,
+            is_verified=False
+        )
+    else:
+        if not isd_code or not phone_number:
+            raise ValueError("isd_code and phone_number are required for OTP without user")
+        user_otp = UserOTP(
+            user_id=None,
+            isd_code=isd_code,
+            phone_number=phone_number,
+            otp=otp_code,
+            type=otp_type,
+            is_sent=False,
+            is_verified=False
+        )
+
     db.add(user_otp)
     db.commit()
     db.refresh(user_otp)
@@ -97,41 +140,52 @@ def mark_otp_as_sent(db: Session, user_otp: UserOTP):
     db.refresh(user_otp)
     return user_otp
 
-def verify_otp(db: Session, user_id: int, otp_code: str, otp_type: str):
+def verify_otp(db: Session, payload: VerifyOtp):
+    otp_code = payload.otp
+    otp_type = payload.otp_type
+    user_id = payload.user_id
+    isd_code = payload.isd_code
+    phone_number = payload.phone_number
+
     filters = [
-        UserOTP.user_id == user_id,
         UserOTP.type == otp_type,
         UserOTP.is_verified == False
     ]
+
+    # If user_id provided, match by user_id
+    if user_id:
+        filters.append(UserOTP.user_id == user_id)
+    else:
+        filters.append(UserOTP.isd_code == isd_code)
+        filters.append(UserOTP.phone_number == phone_number)
 
     # Only add OTP match filter if not the admin bypass OTP
     if otp_code != settings.ADMIN_BYPASS_OTP:
         filters.append(UserOTP.otp == otp_code)
 
-    otp_entry = db.query(UserOTP).filter(*filters).order_by(UserOTP.created_at.desc()).first()
+    # Get latest OTP
+    otp_entry = (
+        db.query(UserOTP)
+        .filter(*filters)
+        .order_by(UserOTP.created_at.desc())
+        .first()
+    )
 
     if not otp_entry:
-        return "invalid_or_used_otp"
+        raise Exception("invalid_or_used_otp")
 
-    # Ensure timezone awareness
+    # Ensure timezone awareness for expiry check
     created_at = otp_entry.created_at
-    if created_at.tzinfo is None or created_at.tzinfo.utcoffset(created_at) is None:
-        # Assuming stored time is UTC but naive, attach timezone
+    if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
 
     if datetime.now(timezone.utc) > created_at + timedelta(minutes=10):
-        # return str(datetime.now(timezone.utc)) + str( created_at + timedelta(minutes=10))
-        return "otp_expired"
+        raise Exception("otp_expired")
 
+    # Mark OTP as verified
     otp_entry.is_verified = True
-
-    if otp_type == OtpTypeEnum.Register:
-        user = db.query(User).filter(User.id == user_id).first()
-        user.is_phone_verified = True
-        db.commit()
     db.commit()
-    db.refresh(otp_entry)
-    return None
+    return otp_entry
 
 # Reset User Password
 def reset_user_password(db: Session, user_id:int ,new_password: str):
@@ -229,13 +283,24 @@ def get_user_profile_data(db: Session, user: User):
     }
 
 # Update User
-def update_user(db: Session, user:User, data: UserUpdate):
+def update_user(db: Session, user_id: int, data: UserUpdate):
     try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise Exception("user_not_found")
+
         data_dict = data.model_dump(exclude_unset=True)
 
+        # Update all fields except referral_code
         for field, value in data_dict.items():
-            if hasattr(user, field):
+            if field != "referral_code" and hasattr(user, field):
                 setattr(user, field, value)
+
+        # Handle referral_code separately (only for referred_by assignment)
+        if data.referral_code:
+            source_user = db.query(User).filter(User.referral_code == data.referral_code).first()
+            if source_user:
+                user.referred_by = source_user.id
 
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -245,7 +310,6 @@ def update_user(db: Session, user:User, data: UserUpdate):
     except Exception as e:
         db.rollback()
         raise
-
 # Change User Password
 def changePassword(db: Session, payload:ChangePassword):
     try:

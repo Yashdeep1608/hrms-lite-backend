@@ -67,6 +67,7 @@ class Product(Base):
         remote_side=[id],
         backref=backref("variants", lazy="selectin")
     )
+    product_category = relationship("Category", foreign_keys=[category_id], back_populates="products")
     custom_field_values = relationship("ProductCustomFieldValue", back_populates="product", cascade="all, delete")
     batches = relationship("ProductBatch", back_populates="product", cascade="all, delete-orphan")
     stock_logs = relationship("ProductStockLog", back_populates="product", cascade="all, delete-orphan")

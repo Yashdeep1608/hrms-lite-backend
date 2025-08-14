@@ -51,11 +51,7 @@ def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
 def update_user(user_id: int, data: UserUpdate, request: Request, db: Session = Depends(get_db)):
    lang = get_lang_from_request(request)
    try:
-       user = crud_user.get_user_by_id(db, user_id)
-       if not user:
-           return ResponseHandler.not_found(message=translator.t("user_not_found", lang))
-
-       updated_user = crud_user.update_user(db, user, data)
+       updated_user = crud_user.update_user(db, user_id, data)
        return ResponseHandler.success(data=UserOut.model_validate(updated_user).model_dump(mode="json"),
                                       message=translator.t("user_updated", lang))
    except Exception as  e:

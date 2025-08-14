@@ -192,7 +192,19 @@ def add_ticket_message(
         )
         db.add(status_message)
         db.commit()
-
+    if sender_role != SenderRole.USER:
+        try:
+            asyncio.run(send_notification(
+                db,
+                NotificationCreate(
+                    user_id=ticket.user_id,
+                    type="support",
+                    message=f"{message}",
+                    url="/support"
+                )
+            ))
+        except Exception as e:
+            raise Exception(str(e))
     return message
 
 # Get All Tickets
@@ -316,17 +328,6 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
     # Send notification (real-time + DB)
     if updated_fields:
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(send_notification(
-                db,
-                NotificationCreate(
-                    user_id=ticket.user_id,
-                    type="support",
-                    message=f"Your support ticket #{ticket.id} has been updated ({', '.join(updated_fields)})",
-                    url="/support"
-                )
-            ))
-        except RuntimeError:
             asyncio.run(send_notification(
                 db,
                 NotificationCreate(
@@ -336,6 +337,8 @@ def update_ticket(db: Session, payload: TicketUpdate, current_user: User):
                     url="/support"
                 )
             ))
+        except Exception as e:
+           raise Exception(str(e))
 
     db.commit()
     return ticket

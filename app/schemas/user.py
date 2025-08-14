@@ -25,8 +25,9 @@ class UserUpdate(BaseModel):
     email:Optional[EmailStr] = None
     isd_code:Optional[str] = None
     phone_number:Optional[str] = None
-    whatsapp_number:Optional[str] = None
     profile_image:Optional[str] = None
+    referral_code:Optional[str] = None
+    is_active:Optional[bool] = True
 
 class UserLogin(BaseModel):
     username: str
@@ -65,12 +66,17 @@ class ResetPassword(BaseModel):
     new_password: str
 
 class VerifyOtp(BaseModel):
-    user_id: int
+    otp_type: str
     otp: str
-    otp_type: str
+    user_id: Optional[int] = None
+    isd_code: Optional[str] = None
+    phone_number: Optional[str] = None
 class SendOtp(BaseModel):
-    user_id: int
-    otp_type: str
+    user_id: Optional[int] = None
+    otp_type: Optional[str] = None
+    isd_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
 
 class UserResponse(BaseModel):
     user:UserOut

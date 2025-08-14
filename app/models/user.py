@@ -18,7 +18,6 @@ class User(Base):
     email = Column(String)
     isd_code = Column(String(5))
     phone_number = Column(String(15), nullable = False)
-    whatsapp_number = Column(String(15))
     is_email_verified = Column(Boolean, default=False)
     is_phone_verified = Column(Boolean, default=False)
     username = Column(String, unique=True, nullable=False)

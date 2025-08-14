@@ -30,17 +30,6 @@ def get_business_categories(request:Request,db: Session = Depends(get_db)):
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
-@public_router.post("/register")
-def register_business(business: BusinessCreate, request: Request,db: Session = Depends(get_db)):
-    lang = get_lang_from_request(request)
-    try:
-        new_business = crud_business.create_business(db, business)
-        return ResponseHandler.success(data=BusinessOut.model_validate(new_business).model_dump(mode="json"), message=translator.t("business_created", lang))
-
-    except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("business_registration_failed", lang), error=str(e))
-
-
 @router.get("/get-category-dropdown")
 def get_category_dropdown(
     request: Request,

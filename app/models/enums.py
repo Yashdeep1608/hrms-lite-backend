@@ -63,9 +63,9 @@ class OrderType(str, enum.Enum):
     FEATURE_PURCHASE = "feature_purchase"
 
 class CreditType(str,enum.Enum):
-    REFERRAL_USER = 'referral_user'              # When a business user refers another user
+    REFERRAL_USER = 'referral_user'              # When a user refers another user
     REFERRAL_EMPLOYEE = 'referral_employee'      # When an employee refers a user
-    COUPON_REFERRAL = 'coupon_referral'          # When a referral comes via coupon
+    REFERRAL_PLATFORM = 'referral_platform'      # When platform team create new user
     PLATFORM_BONUS = 'platform_bonus'            # Platform-side reward (sales/dev/support)
     MANUAL_ADJUSTMENT = 'manual_adjustment'      # Admin manually credits/debits
     PURCHASE_REWARD = 'purchase_reward'          # Cashback or reward on purchase
