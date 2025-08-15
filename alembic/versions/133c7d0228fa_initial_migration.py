@@ -1,8 +1,8 @@
-"""Initial migration
+"""initial migration
 
-Revision ID: 8eb4d21a5e91
+Revision ID: 133c7d0228fa
 Revises: 
-Create Date: 2025-08-07 10:47:18.882860
+Create Date: 2025-08-16 03:59:21.873557
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '8eb4d21a5e91'
+revision: str = '133c7d0228fa'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -47,9 +47,9 @@ def upgrade() -> None:
     sa.Column('postal_code', sa.String(), nullable=False),
     sa.Column('image_url', sa.String(), nullable=True),
     sa.Column('favicon', sa.String(), nullable=True),
-    sa.Column('isd_code', sa.String(), nullable=True),
-    sa.Column('phone_number', sa.String(), nullable=True),
-    sa.Column('email', sa.String(), nullable=True),
+    sa.Column('isd_code', sa.String(), nullable=False),
+    sa.Column('phone_number', sa.String(), nullable=False),
+    sa.Column('email', sa.String(), nullable=False),
     sa.Column('website', sa.String(), nullable=True),
     sa.Column('notes', sa.String(), nullable=True),
     sa.Column('term_conditions', sa.String(), nullable=True),
@@ -98,6 +98,18 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_countries_id'), 'countries', ['id'], unique=False)
+    op.create_table('expense_categories',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('parent_id', sa.Integer(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('image_url', sa.String(length=1000), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['parent_id'], ['expense_categories.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_expense_categories_id'), 'expense_categories', ['id'], unique=False)
     op.create_table('permissions',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('key', sa.String(), nullable=False),
@@ -182,13 +194,43 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['business_id'], ['businesses.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('product_master_data',
+    op.create_table('loans',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('business_id', sa.Integer(), nullable=False),
-    sa.Column('type', sa.Enum('base_unit', 'package_type', 'brand', 'manufacturer', name='master_type'), nullable=False),
-    sa.Column('options', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('lender_name', sa.String(length=255), nullable=False),
+    sa.Column('lender_contact', sa.String(length=1000), nullable=True),
+    sa.Column('principal_amount', sa.Numeric(precision=12, scale=2), nullable=False),
+    sa.Column('interest_rate', sa.Numeric(precision=5, scale=2), nullable=True),
+    sa.Column('total_amount_payable', sa.Numeric(precision=12, scale=2), nullable=False),
+    sa.Column('repayment_type', sa.Enum('DAILY', 'WEEKLY', 'MONTHLY', 'BULLET', 'FLEXIBLE', 'NO_COST', name='loanrepaymenttype'), nullable=False),
+    sa.Column('repayment_amount', sa.Numeric(precision=12, scale=2), nullable=True),
+    sa.Column('repayment_day', sa.Integer(), nullable=True),
+    sa.Column('emi_number', sa.Integer(), nullable=True),
+    sa.Column('start_date', sa.Date(), nullable=False),
+    sa.Column('end_date', sa.Date(), nullable=True),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.Column('status', sa.Enum('ACTIVE', 'CLOSED', 'DEFAULTED', name='loanstatus'), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['business_id'], ['businesses.id'], ),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['business_id'], ['businesses.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_loans_business_id'), 'loans', ['business_id'], unique=False)
+    op.create_index(op.f('ix_loans_id'), 'loans', ['id'], unique=False)
+    op.create_table('suppliers',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('business_id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('isd_code', sa.String(length=10), nullable=True),
+    sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('email', sa.String(length=255), nullable=True),
+    sa.Column('address', sa.String(length=1000), nullable=True),
+    sa.Column('gst_number', sa.String(length=50), nullable=True),
+    sa.Column('pan_number', sa.String(length=50), nullable=True),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['business_id'], ['businesses.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('users',
@@ -198,7 +240,6 @@ def upgrade() -> None:
     sa.Column('email', sa.String(), nullable=True),
     sa.Column('isd_code', sa.String(length=5), nullable=True),
     sa.Column('phone_number', sa.String(length=15), nullable=False),
-    sa.Column('whatsapp_number', sa.String(length=15), nullable=True),
     sa.Column('is_email_verified', sa.Boolean(), nullable=True),
     sa.Column('is_phone_verified', sa.Boolean(), nullable=True),
     sa.Column('username', sa.String(), nullable=False),
@@ -323,6 +364,24 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('code')
     )
+    op.create_table('expenses',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('business_id', sa.Integer(), nullable=False),
+    sa.Column('category_id', sa.Integer(), nullable=False),
+    sa.Column('created_by_user_id', sa.Integer(), nullable=True),
+    sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.Column('expense_date', sa.Date(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['business_id'], ['businesses.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['category_id'], ['expense_categories.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_expenses_business_id'), 'expenses', ['business_id'], unique=False)
+    op.create_index(op.f('ix_expenses_category_id'), 'expenses', ['category_id'], unique=False)
+    op.create_index(op.f('ix_expenses_id'), 'expenses', ['id'], unique=False)
     op.create_table('groups',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('business_id', sa.Integer(), nullable=False),
@@ -337,6 +396,20 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_groups_business_id'), 'groups', ['business_id'], unique=False)
+    op.create_table('loan_repayments',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('loan_id', sa.Integer(), nullable=False),
+    sa.Column('payment_date', sa.Date(), nullable=False),
+    sa.Column('amount_paid', sa.Numeric(precision=12, scale=2), nullable=False),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.Column('status', sa.Enum('PENDING', 'PAID', 'OVERDUE', name='loanrepaymentstatus'), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['loan_id'], ['loans.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_loan_repayments_id'), 'loan_repayments', ['id'], unique=False)
+    op.create_index(op.f('ix_loan_repayments_loan_id'), 'loan_repayments', ['loan_id'], unique=False)
     op.create_table('notifications',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -372,37 +445,37 @@ def upgrade() -> None:
     op.create_table('products',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('business_id', sa.Integer(), nullable=False),
-    sa.Column('name', sa.String(length=100), nullable=False),
-    sa.Column('description', sa.String(length=1000), nullable=True),
-    sa.Column('image_url', sa.String(), nullable=False),
-    sa.Column('is_variant', sa.Boolean(), nullable=True),
     sa.Column('parent_product_id', sa.Integer(), nullable=True),
+    sa.Column('is_variant', sa.Boolean(), nullable=True),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('slug', sa.String(length=255), nullable=True),
+    sa.Column('sku', sa.String(length=100), nullable=True),
+    sa.Column('image_url', sa.String(), nullable=True),
+    sa.Column('barcode', sa.String(), nullable=True),
+    sa.Column('qrcode', sa.String(), nullable=True),
+    sa.Column('selling_price', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('low_stock_alert', sa.Integer(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('is_online', sa.Boolean(), nullable=True),
+    sa.Column('is_deleted', sa.Boolean(), nullable=True),
     sa.Column('category_id', sa.Integer(), nullable=False),
     sa.Column('subcategory_path', sa.ARRAY(sa.Integer()), nullable=True),
-    sa.Column('purchase_price', sa.Numeric(precision=10, scale=2), nullable=True),
-    sa.Column('selling_price', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('tags', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('base_unit', sa.String(length=50), nullable=False),
+    sa.Column('package_type', sa.String(length=50), nullable=True),
+    sa.Column('unit_weight', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('unit_volume', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('dimensions', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('discount_type', sa.String(), nullable=True),
     sa.Column('discount_value', sa.Numeric(), nullable=True),
     sa.Column('max_discount', sa.Numeric(), nullable=True),
     sa.Column('include_tax', sa.Boolean(), nullable=True),
     sa.Column('tax_rate', sa.Numeric(precision=5, scale=2), nullable=True),
-    sa.Column('hsn_code', sa.String(length=10), nullable=True),
-    sa.Column('base_unit', sa.String(length=20), nullable=False),
-    sa.Column('package_type', sa.String(length=50), nullable=False),
-    sa.Column('stock_qty', sa.Integer(), nullable=True),
-    sa.Column('low_stock_alert', sa.Integer(), nullable=True),
+    sa.Column('hsn_code', sa.String(length=20), nullable=True),
     sa.Column('brand', sa.String(length=255), nullable=True),
     sa.Column('manufacturer', sa.String(length=255), nullable=True),
-    sa.Column('packed_date', sa.Date(), nullable=True),
-    sa.Column('expiry_date', sa.Date(), nullable=True),
-    sa.Column('is_active', sa.Boolean(), nullable=True),
-    sa.Column('is_deleted', sa.Boolean(), nullable=True),
-    sa.Column('is_online', sa.Boolean(), nullable=True),
-    sa.Column('slug', sa.String(length=255), nullable=True),
-    sa.Column('sku', sa.String(length=100), nullable=True),
-    sa.Column('barcode', sa.String(length=100), nullable=True),
-    sa.Column('qr_code', sa.String(), nullable=True),
-    sa.Column('tags', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('origin_country', sa.String(length=10), nullable=True),
     sa.Column('created_by_user_id', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
@@ -412,10 +485,11 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['parent_product_id'], ['products.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('barcode'),
+    sa.UniqueConstraint('image_url'),
+    sa.UniqueConstraint('qrcode'),
     sa.UniqueConstraint('sku'),
     sa.UniqueConstraint('slug')
     )
-    op.create_index(op.f('ix_products_id'), 'products', ['id'], unique=False)
     op.create_table('services',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False, comment='Service name/title'),
@@ -464,6 +538,23 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_services_id'), 'services', ['id'], unique=False)
+    op.create_table('supplier_purchases',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('supplier_id', sa.Integer(), nullable=False),
+    sa.Column('purchase_number', sa.String(length=255), nullable=False),
+    sa.Column('supplier_invoice_number', sa.String(length=255), nullable=True),
+    sa.Column('file_url', sa.String(length=1000), nullable=True),
+    sa.Column('purchase_date', sa.Date(), nullable=False),
+    sa.Column('taxable_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('tax_rate', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('total_tax_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('total_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('support_tickets',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=True),
@@ -500,7 +591,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('amount', sa.Float(), nullable=False),
-    sa.Column('type', sa.Enum('REFERRAL_USER', 'REFERRAL_EMPLOYEE', 'COUPON_REFERRAL', 'PLATFORM_BONUS', 'MANUAL_ADJUSTMENT', 'PURCHASE_REWARD', name='credittype'), nullable=True),
+    sa.Column('type', sa.Enum('REFERRAL_USER', 'REFERRAL_EMPLOYEE', 'REFERRAL_PLATFORM', 'PLATFORM_BONUS', 'MANUAL_ADJUSTMENT', 'PURCHASE_REWARD', name='credittype'), nullable=True),
     sa.Column('source_user_id', sa.Integer(), nullable=False),
     sa.Column('code_used', sa.String(length=100), nullable=True),
     sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -536,12 +627,14 @@ def upgrade() -> None:
     op.create_table('user_otps',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('isd_code', sa.String(), nullable=True),
+    sa.Column('phone_number', sa.String(), nullable=True),
     sa.Column('otp', sa.String(), nullable=False),
     sa.Column('type', sa.String(), nullable=False),
     sa.Column('is_sent', sa.Boolean(), nullable=True),
     sa.Column('is_verified', sa.Boolean(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -574,6 +667,16 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_user_permissions_id'), 'user_permissions', ['id'], unique=False)
+    op.create_table('user_tour_progress',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('tour_key', sa.String(length=50), nullable=False),
+    sa.Column('completed', sa.Boolean(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('user_id', 'tour_key', name='unique_user_tour')
+    )
+    op.create_index(op.f('ix_user_tour_progress_id'), 'user_tour_progress', ['id'], unique=False)
     op.create_table('business_contact_ledgers',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('business_id', sa.Integer(), nullable=False),
@@ -678,6 +781,22 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['offer_id'], ['offers.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('product_batches',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('product_id', sa.Integer(), nullable=False),
+    sa.Column('batch_code', sa.String(), nullable=True),
+    sa.Column('purchase_price', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('quantity', sa.Integer(), nullable=False),
+    sa.Column('packed_date', sa.Date(), nullable=True),
+    sa.Column('expiry_date', sa.Date(), nullable=True),
+    sa.Column('supplier_id', sa.Integer(), nullable=True),
+    sa.Column('is_expired', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
+    sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_product_batches_is_expired'), 'product_batches', ['is_expired'], unique=False)
     op.create_table('product_custom_field_values',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('product_id', sa.Integer(), nullable=False),
@@ -698,23 +817,41 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_product_images_id'), 'product_images', ['id'], unique=False)
-    op.create_table('product_stock_logs',
+    op.create_table('product_pack_options',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('product_id', sa.Integer(), nullable=False),
-    sa.Column('is_stock_in', sa.Boolean(), nullable=True),
-    sa.Column('quantity', sa.Integer(), nullable=False),
-    sa.Column('stock_before', sa.Integer(), nullable=True),
-    sa.Column('stock_after', sa.Integer(), nullable=True),
-    sa.Column('source', sa.Enum('ORDER', 'MANUAL', 'SUPPLY', 'RETURN', 'ADJUSTMENT', 'TRANSFER_IN', 'TRANSFER_OUT', 'COMBO_BREAK', 'COMBO_BUILD', 'EXPIRED', 'DEMO', 'SYSTEM_CORRECTION', name='productstocksource'), nullable=True),
-    sa.Column('source_id', sa.Integer(), nullable=True),
-    sa.Column('note', sa.String(), nullable=True),
-    sa.Column('created_by', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
+    sa.Column('pack_quantity', sa.Integer(), nullable=False),
+    sa.Column('additional_discount', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_product_stock_logs_id'), 'product_stock_logs', ['id'], unique=False)
+    op.create_table('supplier_purchase_items',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('purchase_id', sa.Integer(), nullable=False),
+    sa.Column('product_id', sa.Integer(), nullable=False),
+    sa.Column('quantity', sa.Integer(), nullable=False),
+    sa.Column('unit_price', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('tax_rate', sa.Numeric(precision=5, scale=2), nullable=True),
+    sa.Column('tax_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('total_amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.ForeignKeyConstraint(['purchase_id'], ['supplier_purchases.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('supplier_transactions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('supplier_id', sa.Integer(), nullable=False),
+    sa.Column('purchase_id', sa.Integer(), nullable=True),
+    sa.Column('transaction_id', sa.String(), nullable=False),
+    sa.Column('transaction_date', sa.Date(), nullable=False),
+    sa.Column('transaction_type', sa.Enum('purchase', 'payment', name='supplier_transaction_type'), nullable=False),
+    sa.Column('payment_method', sa.Enum('UPI', 'CARD', 'NETBANKING', 'WALLET', 'CASH', 'CHEQUE', 'BANK_TRANSFER', 'CREDIT', 'COD', name='orderpaymentmethod'), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('notes', sa.String(), nullable=True),
+    sa.ForeignKeyConstraint(['purchase_id'], ['supplier_purchases.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('transaction_id')
+    )
     op.create_table('support_messages',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('ticket_id', sa.Integer(), nullable=False),
@@ -774,10 +911,9 @@ def upgrade() -> None:
     sa.Column('final_price', sa.Numeric(precision=10, scale=2), nullable=False),
     sa.Column('discount_price', sa.Numeric(precision=10, scale=2), nullable=False),
     sa.Column('tax_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('tax_percentage', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('quantity', sa.Integer(), nullable=True),
-    sa.Column('time_slot', sa.String(), nullable=True),
-    sa.Column('start_date', sa.Date(), nullable=True),
-    sa.Column('day', sa.String(), nullable=True),
+    sa.Column('date', sa.Date(), nullable=True),
     sa.Column('applied_offer_id', sa.Integer(), nullable=True),
     sa.Column('applied_coupon_id', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
@@ -807,6 +943,7 @@ def upgrade() -> None:
     sa.Column('coupon_discount', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('offer_discount', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('additional_discount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('item_discount', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('delivery_fee', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('handling_fee', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('tax_total', sa.Numeric(precision=10, scale=2), nullable=True),
@@ -832,6 +969,26 @@ def upgrade() -> None:
     op.create_index(op.f('ix_orders_order_number'), 'orders', ['order_number'], unique=True)
     op.create_index(op.f('ix_orders_order_status'), 'orders', ['order_status'], unique=False)
     op.create_index(op.f('ix_orders_source'), 'orders', ['source'], unique=False)
+    op.create_table('product_stock_logs',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('product_id', sa.Integer(), nullable=False),
+    sa.Column('batch_id', sa.Integer(), nullable=True),
+    sa.Column('is_stock_in', sa.Boolean(), nullable=True),
+    sa.Column('quantity', sa.Integer(), nullable=False),
+    sa.Column('stock_before', sa.Integer(), nullable=True),
+    sa.Column('stock_after', sa.Integer(), nullable=True),
+    sa.Column('source', sa.Enum('ORDER', 'MANUAL', 'SUPPLY', 'RETURN', 'ADJUSTMENT', 'TRANSFER_IN', 'TRANSFER_OUT', 'COMBO_BREAK', 'COMBO_BUILD', 'EXPIRED', 'DEMO', 'SYSTEM_CORRECTION', name='productstocksource'), nullable=True),
+    sa.Column('unit_price', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('total_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('source_id', sa.Integer(), nullable=True),
+    sa.Column('note', sa.String(), nullable=True),
+    sa.Column('created_by', sa.Integer(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['batch_id'], ['product_batches.id'], ),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('order_action_logs',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('order_id', sa.Integer(), nullable=False),
@@ -886,7 +1043,6 @@ def upgrade() -> None:
     sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
     sa.Column('currency', sa.String(length=10), nullable=False),
     sa.Column('gateway_fee', sa.Numeric(precision=10, scale=2), nullable=True),
-    sa.Column('receipt_url', sa.String(), nullable=True),
     sa.Column('paid_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('is_manual_entry', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
@@ -944,6 +1100,7 @@ def downgrade() -> None:
     op.drop_table('order_delivery_details')
     op.drop_index(op.f('ix_order_action_logs_order_id'), table_name='order_action_logs')
     op.drop_table('order_action_logs')
+    op.drop_table('product_stock_logs')
     op.drop_index(op.f('ix_orders_source'), table_name='orders')
     op.drop_index(op.f('ix_orders_order_status'), table_name='orders')
     op.drop_index(op.f('ix_orders_order_number'), table_name='orders')
@@ -959,12 +1116,15 @@ def downgrade() -> None:
     op.drop_table('ticket_attachments')
     op.drop_table('ticket_action_logs')
     op.drop_table('support_messages')
-    op.drop_index(op.f('ix_product_stock_logs_id'), table_name='product_stock_logs')
-    op.drop_table('product_stock_logs')
+    op.drop_table('supplier_transactions')
+    op.drop_table('supplier_purchase_items')
+    op.drop_table('product_pack_options')
     op.drop_index(op.f('ix_product_images_id'), table_name='product_images')
     op.drop_table('product_images')
     op.drop_index(op.f('ix_product_custom_field_values_id'), table_name='product_custom_field_values')
     op.drop_table('product_custom_field_values')
+    op.drop_index(op.f('ix_product_batches_is_expired'), table_name='product_batches')
+    op.drop_table('product_batches')
     op.drop_table('offer_rewards')
     op.drop_table('offer_conditions')
     op.drop_table('group_contacts')
@@ -978,6 +1138,8 @@ def downgrade() -> None:
     op.drop_table('carts')
     op.drop_table('business_contact_tags')
     op.drop_table('business_contact_ledgers')
+    op.drop_index(op.f('ix_user_tour_progress_id'), table_name='user_tour_progress')
+    op.drop_table('user_tour_progress')
     op.drop_index(op.f('ix_user_permissions_id'), table_name='user_permissions')
     op.drop_table('user_permissions')
     op.drop_table('user_payments')
@@ -988,14 +1150,21 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_tags_business_id'), table_name='tags')
     op.drop_table('tags')
     op.drop_table('support_tickets')
+    op.drop_table('supplier_purchases')
     op.drop_index(op.f('ix_services_id'), table_name='services')
     op.drop_table('services')
-    op.drop_index(op.f('ix_products_id'), table_name='products')
     op.drop_table('products')
     op.drop_table('offers')
     op.drop_table('notifications')
+    op.drop_index(op.f('ix_loan_repayments_loan_id'), table_name='loan_repayments')
+    op.drop_index(op.f('ix_loan_repayments_id'), table_name='loan_repayments')
+    op.drop_table('loan_repayments')
     op.drop_index(op.f('ix_groups_business_id'), table_name='groups')
     op.drop_table('groups')
+    op.drop_index(op.f('ix_expenses_id'), table_name='expenses')
+    op.drop_index(op.f('ix_expenses_category_id'), table_name='expenses')
+    op.drop_index(op.f('ix_expenses_business_id'), table_name='expenses')
+    op.drop_table('expenses')
     op.drop_table('coupons')
     op.drop_table('combos')
     op.drop_index(op.f('ix_business_contacts_business_id'), table_name='business_contacts')
@@ -1003,7 +1172,10 @@ def downgrade() -> None:
     op.drop_table('banners')
     op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_table('users')
-    op.drop_table('product_master_data')
+    op.drop_table('suppliers')
+    op.drop_index(op.f('ix_loans_id'), table_name='loans')
+    op.drop_index(op.f('ix_loans_business_id'), table_name='loans')
+    op.drop_table('loans')
     op.drop_table('faqs')
     op.drop_index(op.f('ix_categories_id'), table_name='categories')
     op.drop_table('categories')
@@ -1017,6 +1189,8 @@ def downgrade() -> None:
     op.drop_table('plans')
     op.drop_index(op.f('ix_permissions_id'), table_name='permissions')
     op.drop_table('permissions')
+    op.drop_index(op.f('ix_expense_categories_id'), table_name='expense_categories')
+    op.drop_table('expense_categories')
     op.drop_index(op.f('ix_countries_id'), table_name='countries')
     op.drop_table('countries')
     op.drop_index(op.f('ix_contacts_phone_number'), table_name='contacts')
