@@ -448,3 +448,23 @@ def get_group_dropdown(request: Request, db: Session = Depends(get_db),current_u
             error=str(e)
         )
     
+@router.get("/ledger/get-ledgers")
+def get_ledgers(request: Request, search: str = None ,contact_id:UUID = None, type:str = None , page: int = 1, page_size: int = 20, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        result = crud_contact.get_ledgers(db, search,contact_id, type ,page, page_size, current_user)
+        return ResponseHandler.success(
+            message=translator.t("groups_fetched", lang), 
+            data = jsonable_encoder(result)
+            )
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.post("/ledger/create-ledger")
+def create_ledger(payload: CreateLedger, request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        group = crud_contact.create_ledger(db,payload,current_user)
+        return ResponseHandler.success(message=translator.t("group_created", lang), data=str(group.id))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

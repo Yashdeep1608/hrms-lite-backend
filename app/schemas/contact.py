@@ -115,3 +115,10 @@ class AssignContactsTagsRequest(BaseModel):
     contact_ids: List[UUID]
     tag_ids: List[UUID]
     assigned_by: int  # User ID
+
+class CreateLedger(BaseModel):
+    business_contact_id:UUID
+    entry_type:str
+    amount:float
+    payment_method:Optional[str] = None
+    notes:Optional[str] = None

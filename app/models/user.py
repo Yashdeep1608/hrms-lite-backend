@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Enum, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import JSONB
@@ -156,3 +156,15 @@ class UserCredit(Base):
 
     # Relationships
     user = relationship("User", back_populates="credits")
+
+class UserTourProgress(Base):
+    __tablename__ = "user_tour_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    tour_key = Column(String(50), nullable=False)  # e.g., "dashboard", "team_management"
+    completed = Column(Boolean, default=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'tour_key', name='unique_user_tour'),
+    )

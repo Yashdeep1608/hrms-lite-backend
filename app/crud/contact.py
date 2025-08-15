@@ -1,12 +1,10 @@
-from datetime import datetime, timezone
-import json
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session, joinedload,aliased
 from app.helpers.utils import apply_operator, parse_date_to_utc_end, parse_date_to_utc_start
-from app.models.contact import BusinessContact, BusinessContactTag, Contact, ContactCustomField, ContactCustomValue, GroupContact, Groups, Tag
+from app.models.contact import *
 from app.models.enums import RoleTypeEnum
 from app.models.user import User
-from app.schemas.contact import ContactCreate, ContactUpdate, CustomFieldCreate, CustomFieldUpdate, GroupCreate, GroupUpdate
+from app.schemas.contact import *
 from uuid import UUID, uuid4
 from sqlalchemy import or_,and_
 from sqlalchemy.exc import SQLAlchemyError # type: ignore
@@ -700,3 +698,87 @@ def get_tag_dropdown(db:Session,current_user:User):
     query = db.query(Tag.id,Tag.name).filter(Tag.business_id == current_user.business_id)
     tags = query.order_by(Tag.name.asc()).all()
     return [{"id": o.id, "name": o.name} for o in tags]
+
+def get_ledgers(db:Session, search:str, contact_id:UUID, type:str, page:int, page_size:int, current_user:User):
+    # Base query
+    query = (
+        db.query(
+            BusinessContactLedger,
+            BusinessContact.id.label("contact_id"),
+            BusinessContact.first_name,
+            BusinessContact.last_name,
+            BusinessContact.label,
+            BusinessContact.notes,
+            BusinessContact.city,
+            BusinessContact.state,
+            BusinessContact.country,
+            BusinessContact.postal_code,
+        )
+        .join(BusinessContact, BusinessContactLedger.business_contact_id == BusinessContact.id)
+        .filter(BusinessContactLedger.business_id == current_user.business_id)
+    )
+
+    # Optional filters
+    if contact_id:
+        query = query.filter(BusinessContactLedger.business_contact_id == contact_id)
+    if type:
+        query = query.filter(BusinessContactLedger.entry_type == type)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (BusinessContact.first_name.ilike(search_term)) |
+            (BusinessContact.last_name.ilike(search_term)) |
+            (BusinessContact.label.ilike(search_term)) |
+            (BusinessContactLedger.notes.ilike(search_term))
+        )
+
+    # Sorting: latest first
+    query = query.order_by(BusinessContactLedger.created_at.desc())
+
+    # Pagination
+    total = query.count()
+    ledgers = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    # Convert to dict
+    results = []
+    for ledger, contact_id, first_name, last_name, label, notes, city, state, country, postal_code in ledgers:
+        results.append({
+            "id": ledger.id,
+            "business_id": ledger.business_id,
+            "business_contact_id": ledger.business_contact_id,
+            "entry_type": ledger.entry_type,
+            "amount": float(ledger.amount),
+            "payment_method": ledger.payment_method,
+            "notes": ledger.notes,
+            "created_at": ledger.created_at,
+            "contact": {
+                "id": contact_id,
+                "first_name": first_name,
+                "last_name": last_name,
+                "label": label,
+                "notes": notes,
+                "city": city,
+                "state": state,
+                "country": country,
+                "postal_code": postal_code
+            }
+        })
+
+    return {
+        "total": total,
+        "items": results
+    }
+
+def create_ledger(db: Session, data: CreateLedger, current_user:User):
+    group = BusinessContactLedger(
+        business_id=current_user.business_id,
+        business_contact_id=data.business_contact_id,
+        entry_type=data.entry_type,
+        amount=data.amount,
+        payment_method=data.payment_method or None,
+        notes=data.notes
+    )
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    return group

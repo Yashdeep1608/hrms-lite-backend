@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.crud import user as crud_user
 from app.models.enums import RoleTypeEnum
+from app.models.user import UserTourProgress
 from app.schemas.user import ChangePassword, CreateDownlineUser, UserUpdate, UserOut
 from app.services.payments.razorpay_service import *
 from fastapi.encoders import jsonable_encoder
@@ -26,7 +27,7 @@ def get_current_user_info(request: Request,db: Session = Depends(get_db),current
     lang = get_lang_from_request(request)
     try:
         data = crud_user.get_user_profile_data(db, current_user)
-        return ResponseHandler.success(data=data)
+        return ResponseHandler.success(data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(
             message=translator.t("something_went_wrong", lang),
@@ -123,3 +124,34 @@ def create_downline_user(
         )
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+    
+@router.get("/tours/pending")
+def get_pending_tours(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        completed_tours = [
+            tour_key for (tour_key,) in db.query(UserTourProgress.tour_key)
+            .filter(
+                UserTourProgress.user_id == current_user.id,
+                UserTourProgress.completed == True
+            )
+            .all()
+        ]
+
+        return ResponseHandler.success(data=completed_tours)
+    except Exception as e:
+        return ResponseHandler.internal_error(error=str(e))
+
+@router.post("/tours/complete/{tour_key}")
+def complete_tour(tour_key: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tour = (
+        db.query(UserTourProgress)
+        .filter(UserTourProgress.user_id == current_user.id, UserTourProgress.tour_key == tour_key)
+        .first()
+    )
+    if not tour:
+        tour = UserTourProgress(user_id=current_user.id, tour_key=tour_key, completed=True)
+        db.add(tour)
+    else:
+        tour.completed = True
+    db.commit()
+    return ResponseHandler.success(data=True)

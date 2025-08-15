@@ -202,16 +202,11 @@ def soft_delete_user(db: Session, user: User):
 
 # Complete User Data
 def get_user_profile_data(db: Session, user: User):
-    # Validate user data using Pydantic
-    user_data = UserOut.model_validate(user) if user else None
-
     # Fetch business
     business = db.query(Business).filter(
         Business.id == user.business_id,
         Business.is_deleted == False
     ).first()
-    business_data = BusinessOut.model_validate(business) if business else None
-
     combined_keys = []
     if user.role.lower() != RoleTypeEnum.SUPERADMIN:
         # Get default permissions based on role
@@ -230,18 +225,10 @@ def get_user_profile_data(db: Session, user: User):
 
         # Merge both
         combined_keys = list(default_keys.union(user_keys))
-    
-    redirect = None
     plan_data = None
-    reason = None
-
-    # Check phone verification first (applies to all roles)
-    if not user.is_phone_verified:
-        redirect = 'verify-otp'
-        reason = "phone_verification"
 
     # For Admins, check active user plan
-    elif user.role.lower() == RoleTypeEnum.ADMIN:
+    if user.role.lower() == RoleTypeEnum.ADMIN:
         user_plan = db.query(UserPlan).filter(
             UserPlan.user_id == user.id,
             UserPlan.status == PlanStatus.ACTIVE
@@ -256,8 +243,6 @@ def get_user_profile_data(db: Session, user: User):
                 user_plan.status = PlanStatus.EXPIRED
                 db.commit()
                 db.refresh(user_plan)
-                redirect = 'make-payment'
-                reason = "plan_expired"
             else:
                 # ✅ Plan is valid and active
                 plan_data = {
@@ -268,17 +253,12 @@ def get_user_profile_data(db: Session, user: User):
                     "status": user_plan.status,
                     "payment_id": str(user_plan.payment_id) if user_plan.payment_id else None
                 }
-        else:
-            # ❌ No active plan
-            redirect = 'make-payment'
-            reason = "plan_missing"
-
+        
+    user.password = None
     return {
-        "user": user_data.model_dump(mode="json"),
-        "business": business_data.model_dump(mode="json") if business_data else None,
+        "user": user,
+        "business": business,
         "permissions": list(combined_keys),
-        "redirect":redirect,
-        "reason":reason,
         "plan":plan_data
     }
 
