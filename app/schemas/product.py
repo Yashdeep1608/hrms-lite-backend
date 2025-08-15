@@ -107,6 +107,7 @@ class ProductStockUpdateSchema(BaseModel):
     source_id: Optional[int] = None
     packed_date: Optional[date] = None
     expiry_date: Optional[date] = None
+    is_stock_in:Optional[bool] = False
     notes: Optional[str] = None
 
 class ProductBatchUpdate(BaseModel):

@@ -6,7 +6,7 @@ import time
 from decimal import ROUND_HALF_UP, Decimal
 import uuid
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import UUID, func
+from sqlalchemy import UUID, case, func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
 from typing import List
@@ -230,7 +230,7 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
     def reduce_product_stock(product_id: int, quantity: int):
         batches = (
             db.query(ProductBatch)
-            .filter(ProductBatch.product_id == product_id, ProductBatch.stock_qty > 0, ProductBatch.is_expired == False)
+            .filter(ProductBatch.product_id == product_id, ProductBatch.quantity > 0, ProductBatch.is_expired == False)
             .order_by(ProductBatch.expiry_date.asc(), ProductBatch.created_at.asc())
             .all()
         )
@@ -379,26 +379,59 @@ def get_entities(db: Session, payload: CartEntities, current_user: User):
 
     # Always fetch combos if fetch_combos is True
     if fetch_products:
-        query = db.query(Product).filter(
-            Product.business_id == current_user.business_id,
-            Product.is_active == True,
+        # Base query with filters
+        query = (
+            db.query(
+                Product.id,
+                Product.name,
+                Product.description,
+                Product.selling_price,
+                Product.discount_type,
+                Product.discount_value,
+                Product.max_discount,
+                Product.is_active,
+                Product.include_tax,
+                Product.tax_rate,
+                Product.hsn_code,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (ProductBatch.is_expired == False, ProductBatch.quantity),
+                            else_=0
+                        )
+                    ),
+                    0
+                ).label("total_quantity")
+            )
+            .outerjoin(ProductBatch, ProductBatch.product_id == Product.id)
+            .filter(Product.business_id == current_user.business_id, Product.is_active == True)
         )
 
+        # Apply search filter
         if payload.search:
             query = query.filter(Product.name.ilike(f"%{payload.search}%"))
+
+        # Apply category filter
         if payload.category_id:
             query = query.filter(Product.category_id == payload.category_id)
 
-        # Apply sorting
+        # Sorting
         sort_column = getattr(Product, payload.sort_by, Product.name)
-        if payload.sort_dir == "desc":
-            sort_column = sort_column.desc()
-        else:
-            sort_column = sort_column.asc()
+        sort_column = sort_column.desc() if payload.sort_dir == "desc" else sort_column.asc()
         query = query.order_by(sort_column)
 
+        # Group by product ID (needed for aggregate)
+        query = query.group_by(Product.id)
+
         # Pagination
-        products = query.offset((payload.page - 1) * payload.page_size).limit(payload.page_size).all()
+        results = (
+            query.offset((payload.page - 1) * payload.page_size)
+            .limit(payload.page_size)
+            .all()
+        )
+
+        # Convert to list of dicts for JSON
+        products = [dict(r._mapping) for r in results]
 
     if fetch_services:
         query = db.query(Service).filter(
@@ -479,8 +512,28 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
 
         # Product Quantity Check
         if item_type == 'product':
-            available_qty = item.stock_qty or 0
+            available_qty = (
+                db.query(
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (ProductBatch.is_expired == False, ProductBatch.quantity),
+                                else_=0
+                            )
+                        ),
+                        0
+                    )
+                )
+                .filter(ProductBatch.product_id == item.id)
+                .scalar()
+            )
+
+            # Make sure it's not None
+            available_qty = available_qty or 0
+
+            # Adjust quantity based on available stock
             quantity = min(quantity, available_qty)
+
             if quantity <= 0:
                 raise ValueError("Requested quantity is not available in stock")
         else:
@@ -543,12 +596,31 @@ def update_cart_item(db: Session, cart_item_id: int, quantity: int):
 
     # Product stock check
     if cart_item.item_type == 'product':
-        available_qty = item.stock_qty or 0
+        available_qty = (
+            db.query(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (ProductBatch.is_expired == False, ProductBatch.quantity),
+                            else_=0
+                        )
+                    ),
+                    0
+                )
+            )
+            .filter(ProductBatch.product_id == item.id)
+            .scalar()
+        )
+
+        # Make sure it's not None
+        available_qty = available_qty or 0
+
+        # Adjust quantity based on available stock
+        quantity = min(quantity, available_qty)
         if quantity > available_qty:
             quantity = available_qty
         if quantity <= 0:
-            raise ValueError("Requested quantity exceeds available stock")
-
+            raise ValueError("Requested quantity is not available in stock")
     # Always re-calculate prices
     actual_price, discount_price, tax_amount,final_price,tax_percentage = calculate_cart_prices(db,item, quantity, item_type=cart_item.item_type)
 

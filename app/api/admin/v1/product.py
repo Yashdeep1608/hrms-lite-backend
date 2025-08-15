@@ -175,3 +175,14 @@ def update_product_stock(payload: ProductBatchUpdate, request: Request, db: Sess
         return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+
+@router.get("/get-product-batches/{product_id}")
+def get_product_batches(request: Request,product_id:int,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.get_product_batches(db,product_id)
+        # if not items:
+        #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
+        return ResponseHandler.success(data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))

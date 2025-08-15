@@ -133,15 +133,16 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
         db.add(cf_value)
 
     # Add Product Batch
-    product_batch = ProductBatch(
-        product_id = product.id,
-        batch_code = generate_batch_code(current_user.business_id,product.id,1),
-        purchase_price = product_in.purchase_price,
-        quantity = product_in.quantity,
-        packed_date = product_in.packed_date,
-        expiry_date = product_in.expiry_date
-    )
-    db.add(product_batch)
+    if product_in.quantity > 0:
+        product_batch = ProductBatch(
+            product_id = product.id,
+            batch_code = generate_batch_code(current_user.business_id,product.id,1),
+            purchase_price = product_in.purchase_price,
+            quantity = product_in.quantity,
+            packed_date = product_in.packed_date,
+            expiry_date = product_in.expiry_date
+        )
+        db.add(product_batch)
     # Recursively create variants
     for variant_data in product_in.variants or []:
         variant_data.parent_product_id = product.id
@@ -166,7 +167,7 @@ def update_product(db: Session, product_id: int, product_in: ProductUpdate, curr
     allowed_fields = [
         "name", "description", "image_url", "is_active", "is_online",
         "tags", "selling_price", "discount_type", "discount_value", "max_discount",
-        "include_tax", "tax_rate", "category_id", "subcategory_path",
+        "include_tax", "tax_rate","hsn_code" ,"category_id", "subcategory_path",
         "base_unit", "package_type", "unit_weight", "unit_volume", "dimensions",
         "brand", "manufacturer", "origin_country"
     ]
@@ -195,8 +196,8 @@ def update_product(db: Session, product_id: int, product_in: ProductUpdate, curr
         for cfv in update_data["custom_field_values"]:
             db.add(ProductCustomFieldValue(
                 product_id=product.id,
-                field_id=cfv.field_id,
-                value=str(cfv.value) or None
+                field_id=cfv['field_id'],
+                value=str(cfv['value']) or None
             ))
 
     # Commit changes
@@ -430,11 +431,11 @@ def get_product_stats(db: Session, product_id: int, current_user: User):
         db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
         .filter(
             ProductBatch.product_id == product_id,
-            ProductBatch.is_expired == False
+            ProductBatch.is_expired != True 
         )
         .scalar()
     )
-
+    
     # 2️⃣ Stock Status
     if current_stock <= 0:
         stock_status = ProductStockStatus.OUT_OF_STOCK
@@ -453,7 +454,6 @@ def get_product_stats(db: Session, product_id: int, current_user: User):
         )
         .filter(
             ProductBatch.product_id == product_id,
-            ProductBatch.is_expired == False
         )
         .first()
     )
@@ -482,13 +482,30 @@ def get_product_stats(db: Session, product_id: int, current_user: User):
 
     # 6️⃣ Profit per Unit
     profit_per_unit = final_price - avg_purchase_price
-
-    # 7️⃣ Sales Stats from stock logs
+    expired_stocks = (
+        db.query(
+            func.coalesce(
+                func.sum(ProductBatch.quantity), 0
+            ).label("stocks")
+        )
+        .filter(
+            ProductBatch.product_id == product_id,
+            ProductBatch.is_expired == True
+        )
+        .first()
+    )
+    # Get total orders, qty, revenue
     stats = (
         db.query(
             func.count(ProductStockLog.source_id).label("total_orders"),
-            func.coalesce(func.sum(ProductStockLog.quantity), 0).label("total_qty")
+            func.coalesce(func.sum(ProductStockLog.quantity), 0).label("total_qty"),
+            func.coalesce(func.sum(ProductStockLog.total_amount), 0).label("total_revenue"),
+            # Historical net profit: sum(selling_price - purchase_price) * qty
+            func.coalesce(func.sum(
+                (ProductStockLog.unit_price - ProductBatch.purchase_price) * ProductStockLog.quantity
+            ), 0).label("net_profit")
         )
+        .join(ProductBatch, ProductBatch.id == ProductStockLog.batch_id)
         .filter(
             ProductStockLog.product_id == product_id,
             ProductStockLog.source == ProductStockSource.ORDER
@@ -500,12 +517,14 @@ def get_product_stats(db: Session, product_id: int, current_user: User):
         "product_id": product.id,
         "stock_status": stock_status,
         "current_stock": int(current_stock),
+        "expired_stocks": int(expired_stocks.stocks),
+        "avg_purchase_price": float(avg_purchase_price),
         "final_price": float(final_price),
         "profit_per_unit": float(profit_per_unit),
         "total_orders": int(stats.total_orders or 0),
         "total_qty_sold": int(stats.total_qty or 0),
-        "total_revenue": float(float(stats.total_qty or 0) * float(final_price)),
-        "net_profit": float(int(stats.total_qty or 0) * float(profit_per_unit))
+        "total_revenue": float(stats.total_revenue),
+        "net_profit": float(stats.net_profit or 0)
     }
 
 def add_product_stock_log(
@@ -528,7 +547,7 @@ def add_product_stock_log(
         raise ValueError(f"Product with ID {product_id} not found")
 
     if stock_before is None or stock_after is None:
-        stock_before = sum(b.stock_qty for b in product.batches)  # batch-based
+        stock_before = sum(b.quantity for b in product.batches)  # batch-based
         stock_after = stock_before + quantity if is_stock_in else stock_before - quantity
 
     # Determine unit price based on source
@@ -611,13 +630,17 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
     if not product:
         raise ValueError(f"Product with ID {data.product_id} not found")
 
-    is_stock_in = data.source in [
-        ProductStockSource.SUPPLY,
-        ProductStockSource.RETURN,
-        ProductStockSource.TRANSFER_IN,
-        ProductStockSource.COMBO_BREAK,
-        ProductStockSource.SYSTEM_CORRECTION,
-    ]
+    is_stock_in = False
+    if data.source in [ProductStockSource.MANUAL, ProductStockSource.ADJUSTMENT]:
+        is_stock_in = data.is_stock_in
+    else:
+        is_stock_in = data.source in [
+            ProductStockSource.SUPPLY,
+            ProductStockSource.RETURN,
+            ProductStockSource.TRANSFER_IN,
+            ProductStockSource.COMBO_BREAK,
+            ProductStockSource.SYSTEM_CORRECTION,
+        ]
     # === Batch Logic ===
     batch = None
     if is_stock_in:
@@ -672,14 +695,17 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
         "product_id": product.id,
         "batch_id": batch.id if batch else None,
         "stock_before": stock_before,
-        "stock_after": product.stock_qty,
+        "stock_after": stock_before + data.quantity if is_stock_in else stock_before - data.quantity,
         "unit_price": float(unit_price or 0)
     }
 
 def update_product_batch(db: Session, data: ProductBatchUpdate):
     batch = db.query(ProductBatch).filter(ProductBatch.id == data.id).first()
-    batch.expiry_date = data.expiry_date
-    batch.packed_date = data.packed_date
-    batch.is_expired = data.is_expired
+    batch.expiry_date = data.expiry_date or None
+    batch.packed_date = data.packed_date or None
+    batch.is_expired = data.is_expired or False
     db.commit()
     return batch
+
+def get_product_batches(db:Session,product_id:int):
+    return db.query(ProductBatch).filter(ProductBatch.product_id == product_id).all()
