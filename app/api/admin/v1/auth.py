@@ -89,12 +89,19 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
         user = None
         if otp_entry.user_id:
             user = db.query(crud_user.User).filter(crud_user.User.id == otp_entry.user_id).first()
-
             if not user and  payload.otp_type in [OtpTypeEnum.Login,OtpTypeEnum.ForgetPassword,OtpTypeEnum.ResetPassword,OtpTypeEnum.UpdatePhone]:
                 return ResponseHandler.bad_request(
                     message=translator.t("user_not_found", lang)
                 )
-
+        elif payload.otp_type == OtpTypeEnum.Register:
+            business = crud_business.create_business(db, payload.isd_code,payload.phone_number)
+            user = crud_user.create_user(db,payload.isd_code,payload.phone_number,business.id )
+            access_token = create_access_token(data={"sub": str(user.id)})
+            return ResponseHandler.success(
+                data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
+                message=translator.t("username_exists", lang),
+                code=203
+            )
         return ResponseHandler.success(
             data=jsonable_encoder(otp_entry),
             message=translator.t("otp_verified_success", lang)
