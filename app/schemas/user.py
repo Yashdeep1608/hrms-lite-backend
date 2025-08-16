@@ -24,6 +24,7 @@ class UserUpdate(BaseModel):
     last_name:Optional[str] = None
     email:Optional[EmailStr] = None
     isd_code:Optional[str] = None
+    password:Optional[str] = None
     phone_number:Optional[str] = None
     profile_image:Optional[str] = None
     referral_code:Optional[str] = None

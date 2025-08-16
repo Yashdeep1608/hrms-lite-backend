@@ -276,6 +276,8 @@ def update_user(db: Session, user_id: int, data: UserUpdate):
             if field != "referral_code" and hasattr(user, field):
                 setattr(user, field, value)
 
+        if data.password:
+            user.password = get_password_hash(data.password)
         # Handle referral_code separately (only for referred_by assignment)
         if data.referral_code:
             source_user = db.query(User).filter(User.referral_code == data.referral_code).first()
