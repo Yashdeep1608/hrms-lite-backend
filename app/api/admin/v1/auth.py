@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 from app.helpers.utils import get_lang_from_request
@@ -23,6 +23,10 @@ router = APIRouter(
     prefix="/api/admin/v1/auth",
     tags=["Authentication"]
 )
+class LoginForm:
+    def __init__(self,password: str = Form(...), phone_number: str = Form(None)):
+        self.password = password
+        self.phone_number = phone_number
 
 @router.post("/send-otp")
 def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
@@ -115,10 +119,10 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
         )
 
 @router.post("/login")
-def login_user(request: Request,form_data: OAuth2PasswordRequestForm = Depends(),db: Session = Depends(get_db)):
+def login_user(request: Request,form_data: LoginForm = Depends(),db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
-        user = crud_user.get_user_by_username(db,form_data.username)
+        user = crud_user.get_user_by_email_or_phone(db,form_data.phone_number,True)
         if not user or not (verify_username_password(form_data.password, user.password)):
             return ResponseHandler.unauthorized(message=translator.t("invalid_credentials", lang))
         
@@ -133,28 +137,24 @@ def login_user(request: Request,form_data: OAuth2PasswordRequestForm = Depends()
             )
         ):
             return ResponseHandler.success(
-                data={
-                    "access_token": access_token,
-                    "token_type": "bearer",
-                    "user": jsonable_encoder(user)
-                },
-                message=translator.t("username_exists", lang),
-                code=204
+                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
+                message=translator.t("login_success", lang),
+                code=201
             )
 
-        # Case: User active, business active, no plans at all
+        # Case: User active, business active, plans at all
         elif user.is_active and user.business.is_active and (
                 user.plans 
                 and any(plan.status == PlanStatus.ACTIVE for plan in user.plans)
             ):
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("username_exists", lang),
-                code=201
+                message=translator.t("login_success", lang),
+                code=200
             )
 
         # Case: User active, business inactive, no plans
-        elif user.is_active and not user.business.is_active and not user.plans:
+        elif user.is_active and not user.business.is_active:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
                 message=translator.t("username_exists", lang),
@@ -162,7 +162,7 @@ def login_user(request: Request,form_data: OAuth2PasswordRequestForm = Depends()
             )
 
         # Case: User inactive, business inactive, no plans
-        elif not user.is_active and not user.business.is_active and not user.plans:
+        elif not user.is_active:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
                 message=translator.t("username_exists", lang),

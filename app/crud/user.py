@@ -16,6 +16,7 @@ from app.core.config import settings
 from sqlalchemy.orm import joinedload
 
 
+
 def generate_unique_referral_code(db: Session, length: int = 8) -> str:
     characters = string.ascii_uppercase + string.digits
     while True:
@@ -78,16 +79,20 @@ def create_user(db: Session, isd_code: str, phone_number: str, business_id: int)
     return new_user
 
 # Get User by email/phone
-def get_user_by_email_or_phone(db: Session, email_or_phone: str):
-    return (
+def get_user_by_email_or_phone(db: Session, email_or_phone: str, is_active: bool = False):
+    query = (
         db.query(User)
-        .options(joinedload(User.business))  # eager load the related Business
+        .options(joinedload(User.business),joinedload(User.plans))  # eager load the related Business
         .filter(
             ((User.username == email_or_phone) | (User.phone_number == email_or_phone)),
             User.is_deleted == False
         )
-        .first()
     )
+    if is_active:
+        query = query.filter(User.is_active == True)
+    
+    return query.first()
+          
 
 # Create OTP for User
 def create_otp_for_user(

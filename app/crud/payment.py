@@ -7,6 +7,7 @@ from requests import Session
 
 from app.models.coupon import Coupon
 from app.models.enums import CreditType, OrderStatus, PaymentMode, PaymentStatus, PlanStatus, RoleTypeEnum
+from app.models.notification import NotificationType
 from app.models.plan import Plan
 from app.models.user import User, UserCredit, UserOrder, UserPayment, UserPlan
 from app.schemas.notification import NotificationCreate
@@ -322,7 +323,7 @@ def add_credit(
             db,
             NotificationCreate(
                 user_id=user_id,
-                type="credit",
+                type=NotificationType.ORDER,
                 message=f"Your just credited amount of {amount}",
                 url="/dashboard"
             )
