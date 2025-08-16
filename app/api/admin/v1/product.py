@@ -92,8 +92,8 @@ def get_product_dropdown(
             error=str(e)
         )
     
-@router.post("/delete-product/{product_id}")
-def toggle_product_status(product_id: int,request:Request ,db: Session = Depends(get_db)):
+@router.delete("/delete-product/{product_id}")
+def delete_product(product_id: int,request:Request ,db: Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:
         product = crud_product.delete_product(db, product_id)

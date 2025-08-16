@@ -172,6 +172,10 @@ def update_product(db: Session, product_id: int, product_in: ProductUpdate, curr
         "brand", "manufacturer", "origin_country"
     ]
 
+    if not product_in.discount_type:
+        product.discount_value = 0
+        product.max_discount = 0
+
     for field, value in update_data.items():
         if field in allowed_fields:
             setattr(product, field, value)

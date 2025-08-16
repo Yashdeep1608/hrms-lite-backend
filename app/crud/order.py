@@ -393,6 +393,7 @@ def get_entities(db: Session, payload: CartEntities, current_user: User):
                 Product.include_tax,
                 Product.tax_rate,
                 Product.hsn_code,
+                Product.image_url,
                 func.coalesce(
                     func.sum(
                         case(

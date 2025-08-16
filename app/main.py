@@ -3,7 +3,7 @@ from app.helpers.response import ResponseHandler
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support,notification,marketing,order, payables
+from app.api.admin.v1 import auth, coupon, user, business, location, service, product, contact,payment,faq,support,notification,marketing,order, payables, dashboard
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Request
@@ -70,6 +70,7 @@ app.mount("/socket.io", socket_app)
 app.include_router(auth.router)
 app.include_router(business.public_router)
 app.include_router(business.router)
+app.include_router(dashboard.router)
 app.include_router(user.router)
 app.include_router(location.router)
 app.include_router(service.router)
