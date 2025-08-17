@@ -1057,8 +1057,7 @@ def place_order(db: Session,payload: PlaceOrderRequest, current_user: User = Non
             order.order_status = CartOrderStatus.PROCESSING
             cart.cart_status = CartOrderStatus.PROCESSING
         
-        db.commit()
-        db.refresh(order)
+        
         log_order_status_change(
             db=db,
             order=order,
@@ -1067,6 +1066,8 @@ def place_order(db: Session,payload: PlaceOrderRequest, current_user: User = Non
             current_user=current_user,  # No user context for backend order creation
             note_text=f"Order Status changed to {CartOrderStatus.COMPLETED} to {CartOrderStatus.CONFIRMED}"
         )
+        db.commit()
+        db.refresh(order)
         return order
 
     except ValueError as ve:

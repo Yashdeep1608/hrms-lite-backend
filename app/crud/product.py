@@ -149,6 +149,21 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
         variant_data.is_variant = True
         create_product(db, variant_data, current_user)
 
+    add_product_stock_log(
+        db=db,
+        product_id=product.id,
+        quantity=product_batch.quantity,
+        is_stock_in=True,
+        batch_id=product_batch.id,
+        stock_before=0,
+        unit_price=product_batch.purchase_price,
+        stock_after=product_batch.quantity,
+        source=ProductStockSource.MANUAL,
+        source_id=None,
+        created_by=current_user.id if current_user.id else None,
+        notes=f"Product added manually from product {product.sku}"
+    )
+
     db.commit()
     db.refresh(product)
     return product
