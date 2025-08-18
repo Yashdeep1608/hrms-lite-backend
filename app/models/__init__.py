@@ -27,4 +27,5 @@ from .cart import *
 from .expense import *
 from .loan import *
 from .supplier import *
+from .motivation import *
 # add all your models here for easy import elsewhere

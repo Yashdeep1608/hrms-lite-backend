@@ -535,57 +535,6 @@ def delete_loan(db: Session, loan_id: int):
     db.delete(loan)
     db.commit()
 
-def get_loan_repayment_reminders(db: Session, current_user: User):
-    today = date.today()
-    reminders = []
-
-    loans = db.query(Loan).filter(
-        Loan.business_id == current_user.business_id,
-        Loan.status == LoanStatus.ACTIVE
-    ).all()
-
-    for loan in loans:
-        # Fetch only unpaid repayments
-        repayments = db.query(LoanRepayment).filter(
-            LoanRepayment.loan_id == loan.id,
-            LoanRepayment.status != LoanRepaymentStatus.PAID
-        ).order_by(LoanRepayment.payment_date.asc()).all()
-
-        # --- Generate reminders ---
-        for r in repayments:
-            if r.payment_date == today:
-                reminders.append(
-                    f"Loan '{loan.lender_name}' – Repayment of ₹{loan.repayment_amount} is due today."
-                )
-            elif r.payment_date < today:
-                reminders.append(
-                    f"Loan '{loan.lender_name}' – Repayment of ₹{loan.repayment_amount} was overdue on {r.payment_date}."
-                )
-
-        # Special cases
-        if loan.repayment_type == LoanRepaymentType.BULLET and loan.end_date and today >= loan.end_date - timedelta(days=3):
-            reminders.append(
-                f"Loan '{loan.lender_name}' – Full repayment of ₹{loan.total_amount_payable} is due on {loan.end_date}."
-            )
-
-        if loan.repayment_type == LoanRepaymentType.FLEXIBLE:
-            last_paid = db.query(LoanRepayment).filter(
-                LoanRepayment.loan_id == loan.id,
-                LoanRepayment.status == LoanRepaymentStatus.PAID
-            ).order_by(LoanRepayment.payment_date.desc()).first()
-
-            if not last_paid or (today - last_paid.payment_date).days >= 30:
-                reminders.append(
-                    f"Loan '{loan.lender_name}' – Flexible loan: consider making a payment."
-                )
-
-        if loan.repayment_type == LoanRepaymentType.NO_COST and loan.end_date and today >= loan.end_date - timedelta(days=3):
-            reminders.append(
-                f"Loan '{loan.lender_name}' – No-cost loan ends on {loan.end_date}."
-            )
-
-    return reminders
-
 def add_loan_repayment(db: Session, payload: LoanRepaymentRequest):
     # Fetch loan
     loan = db.query(Loan).filter(Loan.id == payload.loan_id).first()
