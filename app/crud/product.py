@@ -346,7 +346,7 @@ def get_product_list(
     return total, items
 
 def get_product_dropdown(db:Session,is_parent:bool,search:str,current_user:User):
-    query = db.query(Product).filter(Product.business_id == current_user.business_id)
+    query = db.query(Product).filter(Product.business_id == current_user.business_id,Product.is_deleted == False)
 
     # Only Top Level Product
     if is_parent:
