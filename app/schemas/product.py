@@ -115,3 +115,12 @@ class ProductBatchUpdate(BaseModel):
     packed_date:Optional[date] = None
     expiry_date:Optional[date] = None
     is_expired:Optional[bool] = None 
+
+class StockReportFilter(BaseModel):
+    search: Optional[str] = None              # search by product name
+    status: Optional[str] = None              # "low", "out", "in" etc.
+    category_id: Optional[int] = None         # filter by category
+    sort_by: Optional[str] = "name"           # name, stock, value
+    sort_dir: Optional[str] = "asc"           # asc / desc
+    page: int = 1
+    page_size: int = 20

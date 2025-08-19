@@ -59,5 +59,15 @@ class CartItem(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     cart = relationship("Cart", back_populates="items")
+    product = relationship(
+        "Product",
+        primaryjoin="and_(CartItem.item_id == foreign(Product.id), CartItem.item_type == 'product')",
+        viewonly=True,
+    )
+    service = relationship(
+        "Service",
+        primaryjoin="and_(CartItem.item_id==foreign(Service.id), CartItem.item_type=='service')",
+        viewonly=True,
+    )
     applied_offer = relationship("Offer", foreign_keys=[applied_offer_id])
     applied_coupon = relationship("Coupon", foreign_keys=[applied_coupon_id])

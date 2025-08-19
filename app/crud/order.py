@@ -47,14 +47,13 @@ def calculate_cart_prices(db:Session,item, quantity: int = 1, item_type: str = "
 
         if discount_type == "percentage" and discount_value:
             discount_amount = (base_price * Decimal(discount_value) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            # Cap discount by max_discount
+            if max_discount is not None:
+                max_discount_d = Decimal(max_discount).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                if discount_amount > max_discount_d:
+                    discount_amount = max_discount_d
         elif discount_type == "flat" and discount_value:
             discount_amount = Decimal(discount_value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-        # Cap discount by max_discount
-        if max_discount is not None:
-            max_discount_d = Decimal(max_discount).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            if discount_amount > max_discount_d:
-                discount_amount = max_discount_d
 
         price_after_discount = base_price - discount_amount
         if price_after_discount < 0:
@@ -295,21 +294,58 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
                 coupon.is_active = False
 
     db.commit()  # commit all changes atomically
-def generate_invoice_id():
-    short_id = uuid.uuid4().hex[:16].upper()  # 8 char unique, or use more for safety
-    return f"INV-{short_id}"
+def generate_invoice_id(db, business_id: int):
+    # Find latest invoice number for this business
+    last_invoice = (
+        db.query(Order)
+        .filter(Order.business_id == business_id, Order.invoice_number != None)
+        .order_by(Order.created_at.desc())
+        .first()
+    )
+    
+    if last_invoice and last_invoice.invoice_number:
+        try:
+            # Example: INV-2025-00023
+            last_number = int(last_invoice.invoice_number.split("-")[-1])
+            new_number = last_number + 1
+        except:
+            new_number = 1
+    else:
+        new_number = 1
+    
+    return f"INV-{datetime.now().year}-{str(new_number).zfill(5)}"
 def generate_transaction_id():
     short_id = uuid.uuid4().hex[:16].upper()
     return f"TXN-{short_id}"
 def generate_invoice(order, business, business_contact):
     try:
+        def is_intrastate_supply(business, business_contact):
+            """
+            Returns True if intra-state (CGST+SGST), False if inter-state (IGST).
+            Falls back to False if info is missing.
+            """
+            if not business or not business_contact:
+                return False  # default to IGST if data missing
+
+            # Ensure both have state & country
+            if not business.state or not business.country or not business_contact.state or not business_contact.country:
+                return False
+
+            # Compare country + state
+            if business.country.strip().upper() == business_contact.country.strip().upper():
+                if business.state.strip().upper() == business_contact.state.strip().upper():
+                    return True  # Intra-state
+            return False  # Inter-state
         # 1. Render the HTML using Jinja
+        is_intrastate = is_intrastate_supply(business, business_contact)
         env = Environment(loader=FileSystemLoader('app/templates'))
         template = env.get_template("invoice.html")
+        print("Order =>", vars(order))
         html_out = template.render(
             order=order,
             business=business,
-            business_contact=business_contact
+            business_contact=business_contact,
+            is_intrastate=is_intrastate
         )
 
         # 2. Generate PDF with Playwright
@@ -615,13 +651,9 @@ def update_cart_item(db: Session, cart_item_id: int, quantity: int):
 
         # Make sure it's not None
         available_qty = available_qty or 0
-
-        # Adjust quantity based on available stock
-        quantity = min(quantity, available_qty)
-        if quantity > available_qty:
-            quantity = available_qty
-        if quantity <= 0:
+        if quantity > available_qty :
             raise ValueError("Requested quantity is not available in stock")
+        # Adjust quantity based on available stock
     # Always re-calculate prices
     actual_price, discount_price, tax_amount,final_price,tax_percentage = calculate_cart_prices(db,item, quantity, item_type=cart_item.item_type)
 
@@ -889,6 +921,7 @@ def checkout_order(db: Session, cart_id:int,additional_discount:float = 0.0, cur
         # Step 4: Calculate amounts
         subtotal = sum(Decimal(str(item.actual_price))  for item in cart_items)
         tax_total = sum(Decimal(str(item.tax_amount or 0)) for item in cart_items)
+        item_discounts = sum(Decimal(str(item.discount_price or 0)) for item in cart_items)
         item_discounts = sum(Decimal(str(item.discount_price or 0)) for item in cart_items)
         delivery_fee = Decimal("0.0")  # Placeholder for dynamic logic
         handling_fee = Decimal("0.0")  # Placeholder for dynamic logic
@@ -1251,7 +1284,7 @@ def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user
             ).first()
 
         # Generate invoice details
-        order.invoice_number = generate_invoice_id()
+        order.invoice_number = generate_invoice_id(db,business_id=order.business.id)
         order.invoice_url = generate_invoice(
             order,
             business=order.business,
@@ -1294,11 +1327,15 @@ def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user
         order = db.query(Order).options(
                 joinedload(Order.payments),
                 joinedload(Order.delivery_detail),
-                joinedload(Order.cart).joinedload(Cart.items),
-            ).filter(Order.id == order_id,
-                     Order.order_status.in_([CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]),
-            Order.invoice_number.is_(None),
-            Order.invoice_url.is_(None)).first()
+                joinedload(Order.cart)
+                .joinedload(Cart.items)
+                .joinedload(CartItem.product),  # Explicitly mention CartItem.product
+            ).filter(
+                Order.id == order_id,
+                Order.order_status.in_([CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]),
+                Order.invoice_number.is_(None),
+                Order.invoice_url.is_(None)
+            ).first()
         if not order:
             raise ValueError(f"Order with ID {order_id} not available for invoice")
 

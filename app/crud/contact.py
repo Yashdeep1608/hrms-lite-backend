@@ -170,7 +170,7 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
                 isd_code=contact_data.isd_code,
                 country_code=contact_data.country_code,
                 gender=contact_data.gender,
-                preferred_language=contact_data.preferred_language
+                preferred_language=contact_data.preferred_language,
             )
             db.add(contact)
             db.commit()
@@ -195,7 +195,13 @@ def create_contact(db: Session, user_id: int, business_id: int, contact_data: Co
             notes=contact_data.notes,
             is_favorite=contact_data.is_favorite,
             managed_by_user_id=user_id,
-            sponsor_id=contact_data.sponsor_id
+            sponsor_id=contact_data.sponsor_id,
+            address_line1=contact_data.address_line1 or None,
+            address_line2=contact_data.address_line2 or None,
+            city=contact_data.city or None,
+            state=contact_data.state or None,
+            country=contact_data.country or None,
+            postal_code=contact_data.postal_code or None,
         )
         db.add(business_contact)
         db.commit()
@@ -300,8 +306,8 @@ def update_business_contact(db: Session, business_contact_id: str, update_data: 
             return None
 
         # 1. Update BusinessContact fields
-        bc_fields = {"first_name", "last_name", "label", "notes", "is_favorite", "sponsor_id"}
-        for field, value in update_data.dict(exclude_unset=True).items():
+        bc_fields = {"first_name", "last_name", "label", "notes", "is_favorite", "sponsor_id","address_line1","address_line2","city","state","country","postal_code"}
+        for field, value in update_data.model_dump(exclude_unset=True).items():
             if field in bc_fields:
                 setattr(bc, field, value)
 

@@ -186,3 +186,14 @@ def get_product_batches(request: Request,product_id:int,db: Session = Depends(ge
         return ResponseHandler.success(data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))
+
+@router.post("/get-stocks-report")
+def get_product_stock_report(request: Request,filters:StockReportFilter,db: Session = Depends(get_db),current_user=Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        data = crud_product.get_product_stock_report(db,current_user.business_id,filters)
+        # if not items:
+        #     return ResponseHandler.not_found(message=translator.t("products_not_found", lang))
+        return ResponseHandler.success(data=jsonable_encoder(data))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang),error=str(e))

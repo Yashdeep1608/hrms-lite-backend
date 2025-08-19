@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from slugify import slugify
-from sqlalchemy import any_, distinct, not_, or_,func,and_, select
+from sqlalchemy import any_, asc, desc, distinct, not_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
 from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
@@ -53,6 +53,12 @@ def generate_batch_code(business_id: int, product_id: int, batch_number: int = 1
     batch_seq = f"{batch_number:02d}"
     batch_code = f"B{hex(business_id)[2:].upper()}-P{product_code}-{batch_seq}"
     return batch_code
+def get_stock_status(total_stock: int, low_stock_alert: int) -> str:
+    if total_stock <= 0:
+        return "Out of Stock"
+    elif total_stock <= low_stock_alert:
+        return "Low Stock"
+    return "In Stock"
 
 def create_product(db: Session, product_in: ProductCreate, current_user: User):
     parent_product = None
@@ -728,3 +734,81 @@ def update_product_batch(db: Session, data: ProductBatchUpdate):
 
 def get_product_batches(db:Session,product_id:int):
     return db.query(ProductBatch).filter(ProductBatch.product_id == product_id).all()
+
+def get_product_stock_report(
+    db: Session,
+    business_id: int,
+    filters: StockReportFilter
+) :
+
+    # Base query with aggregation
+    query = (
+        db.query(
+            Product.id,
+            Product.name,
+            Product.image_url,
+            Product.low_stock_alert,
+            func.coalesce(func.sum(ProductBatch.quantity), 0).label("available_stock"),
+        )
+        .join(Product.batches)
+        .filter(Product.business_id == business_id)
+        .group_by(Product.id)
+    )
+
+    # ✅ Apply search filter
+    if filters.search:
+        query = query.filter(
+            or_(
+                Product.name.ilike(f"%{filters.search}%"),
+                Product.description.ilike(f"%{filters.search}%")
+            )
+        )
+
+    # Category filter (supports subcategories)
+    if filters.category_id is not None:
+        query = query.filter(
+            or_(
+                Product.category_id == filters.category_id,
+                Product.subcategory_path.any(filters.category_id)
+            )
+        )
+
+    # Sorting
+    sort_column = {
+        "name": Product.name,
+        "stock": func.coalesce(func.sum(ProductBatch.quantity), 0),
+    }.get(filters.sort_by, Product.name)
+
+    if filters.sort_dir == "desc":
+        query = query.order_by(desc(sort_column))
+    else:
+        query = query.order_by(asc(sort_column))
+
+    # Pagination
+    total = query.count()
+    results = (
+        query
+        .offset((filters.page - 1) * filters.page_size)
+        .limit(filters.page_size)
+        .all()
+    )
+
+    # Transform into response
+    products = []
+    for row in results:
+        stock_status = get_stock_status(row.available_stock, row.low_stock_alert)
+        if filters.status and filters.status.lower().replace(" ", "_") not in stock_status.lower().replace(" ", "_"):
+            continue
+
+        products.append({
+            "id":row.id,
+            "name":row.name,
+            "image_url":row.image_url,
+            "available_stock":row.available_stock,
+            "stock_status":stock_status,
+        })
+
+    return {
+        "total":total,
+        "items":products
+    }

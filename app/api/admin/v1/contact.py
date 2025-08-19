@@ -20,7 +20,7 @@ router = APIRouter(
 )
 
 # Contact APIs
-@router.post("/create-contact",response_model = dict)
+@router.post("/create-contact")
 def create_contact(payload:ContactCreate,request:Request,db:Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
@@ -36,7 +36,7 @@ def create_contact(payload:ContactCreate,request:Request,db:Session = Depends(ge
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
     
-@router.put("/update-contact/{business_contact_id}",response_model = dict)
+@router.put("/update-contact/{business_contact_id}")
 def update_contact(business_contact_id:UUID,payload:ContactUpdate,request:Request,db:Session = Depends(get_db)):
     lang = get_lang_from_request(request)
     try:

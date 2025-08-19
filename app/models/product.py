@@ -160,3 +160,4 @@ class ProductStockLog(Base):
 
     product = relationship("Product", back_populates="stock_logs")
     batch = relationship("ProductBatch", back_populates="stock_logs")
+

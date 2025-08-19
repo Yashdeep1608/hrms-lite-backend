@@ -63,7 +63,7 @@ class GroupOut(BaseModel):
 class CustomFieldInput(BaseModel):
     field_id: UUID
     value: str
-
+ 
 class ContactCreate(BaseModel):
     isd_code: Optional[str]
     phone_number: str
@@ -78,6 +78,13 @@ class ContactCreate(BaseModel):
     notes: Optional[str] = None
     is_favorite: Optional[bool] = False
     sponsor_id: Optional[UUID] = None
+
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
 
     custom_fields: Optional[List[CustomFieldInput]] = []
 
@@ -94,6 +101,12 @@ class ContactUpdate(BaseModel):
     gender: Optional[str]
     preferred_language: Optional[str]
 
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
     # Custom field values
     custom_fields: Optional[List[CustomFieldInput]] = []
 
