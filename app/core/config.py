@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     GUPSHUP_API_KEY:str
     GUPSHUP_SOURCE_NUMBER:str
     GUPSHUP_APP_NAME   :str
-    GUPSHUP_OTP_TEMPLATE:str
 
     class Config:
         env_file = ".env"
