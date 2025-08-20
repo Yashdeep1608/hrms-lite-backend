@@ -339,28 +339,26 @@ def get_platform_user_list(db:Session,user:User):
     return users
 
 # Create Downline Users
-def create_downline_user(db:Session,payload:CreateDownlineUser,user:User):
-    # Generate referral code
+def create_downline_user(db:Session,payload:CreateDownlineUser,current_user:User):
     referral_code = generate_unique_referral_code(db)
     hashed_password = get_password_hash(payload.password)
+    temp_username = "user_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
     new_user = User(
         first_name=payload.first_name,
         last_name=payload.last_name,
         email=payload.email,
         phone_number=payload.phone_number,
-        whatsapp_number=payload.whatsapp_number,
-        username=payload.username,
+        username=temp_username,
         password= hashed_password,
         role=payload.role,
-        business_id=payload.business_id or user.business_id,
+        business_id=payload.business_id or current_user.business_id,
         preferred_language=payload.preferred_language,
-        parent_user_id=user.id,
+        parent_user_id=current_user.id,
         referred_by=None,
         referral_code=referral_code,
         is_email_verified=False,
         is_phone_verified=payload.is_phone_verified,
     )
-
     db.add(new_user)
     db.commit()
     db.refresh(new_user)

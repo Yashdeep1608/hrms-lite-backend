@@ -108,14 +108,6 @@ def create_downline_user(
         if payload.role in [RoleTypeEnum.PLATFORM_ADMIN, RoleTypeEnum.ADMIN] and current_user.role != RoleTypeEnum.SUPERADMIN:
             raise ResponseHandler.unauthorized(code=403, message=translator.t("unauthorized", lang))
 
-        # Check if username or phone already exists
-        existing_user = crud_user.get_user_by_username(db, payload.username)
-        if existing_user:
-            return ResponseHandler.bad_request(message=translator.t("username_exists", lang))
-        
-        if existing_user.phone_number == payload.phone_number:
-            return ResponseHandler.bad_request(message=translator.t("phone_number_exists", lang))
-
         new_user = crud_user.create_downline_user(db, payload, current_user)
 
         return ResponseHandler.success(

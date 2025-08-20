@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.socket_manager import socket_app  # path where your socket_app is defined
-
+from app.api.admin.webhook import webhook
 # Use dependency-based authentication, not middleware!
 # from app.middlewares.auth import AuthMiddleware  # REMOVE THIS LINE
 
@@ -85,3 +85,5 @@ app.include_router(notification.router)
 app.include_router(marketing.router)
 app.include_router(order.router)
 app.include_router(payables.router)
+app.include_router(payables.router)
+app.include_router(webhook.router)

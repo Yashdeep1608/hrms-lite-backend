@@ -39,14 +39,8 @@ def send_whatsapp_otp_gupshup(isd_code: str, phone_number: str, otp: str):
             "Content-Type": "application/x-www-form-urlencoded",
             "accept": "application/json",
         }
-        # # 🟢 Print final curl equivalent
-        # print(dict_to_curl(url, payload, headers))
-        # Make the POST request
         response = requests.post(url, data=payload, headers=headers)
-
-        # print(f"Response Status Code: {response.status_code}")
-        # print(f"Response Body: {response.text}")
-
+        
         if response.status_code != 202:
             raise Exception(f"Gupshup HTTP Error: {response.status_code} - {response.text}")
 
@@ -59,17 +53,6 @@ def send_whatsapp_otp_gupshup(isd_code: str, phone_number: str, otp: str):
         return True
 
     except Exception as e:
-        # print(f"WhatsApp OTP send failed: {e}")
+        print(f"WhatsApp OTP send failed: {e}")
         return False
     
-# import requests
-# import json
-
-# def dict_to_curl(url, data, headers):
-#     curl_parts = ["curl --request POST \\"]
-#     curl_parts.append(f"     --url {url} \\")
-#     for k, v in headers.items():
-#         curl_parts.append(f"     --header '{k}: {v}' \\")
-#     for k, v in data.items():
-#         curl_parts.append(f"     --data '{k}={v}' \\")
-#     return "\n".join(curl_parts)
