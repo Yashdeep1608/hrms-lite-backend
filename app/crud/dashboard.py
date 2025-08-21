@@ -76,7 +76,7 @@ def get_dashboard_products_stats(db: Session, current_user: User, duration_type:
             .group_by(Product.id)
             .all()
         )
-
+        total_stock = sum(p.total_stock for p in product_agg)
         # Separate low stock and out-of-stock products
         low_stock_products = [
             {"id": p.id, "name": p.name, "stock": p.total_stock, "low_stock_alert": p.low_stock_alert}
@@ -89,10 +89,27 @@ def get_dashboard_products_stats(db: Session, current_user: User, duration_type:
             for p in product_agg
             if p.total_stock == 0
         ]
+        # Top selling products in the selected duration
+        top_selling_products_query = db.query(
+            Product.id,
+            Product.name,
+            func.coalesce(func.sum(ProductStockLog.quantity), 0).label("sold_qty")
+        ).join(Product.stock_logs).filter(
+            Product.business_id == business_id,
+            ProductStockLog.source == ProductStockSource.ORDER,
+            ProductStockLog.created_at >= filter_start,
+            ProductStockLog.created_at <= filter_end
+        ).group_by(Product.id).order_by(desc('sold_qty')).limit(3)
 
+        top_selling_products = top_selling_products_query.all()
+
+        response["total_stock"] = len(low_stock_products) or 0
         response["low_stock_products"] = len(low_stock_products) or 0
         response["out_of_stock_products"] = len(out_of_stock_products) or 0
-
+        response["top_selling_products"] = [
+                {"id": p.id, "name": p.name, "sold_qty": p.sold_qty}
+                for p in top_selling_products
+            ]
     # =====================
     # Admin View
     # =====================
@@ -147,104 +164,81 @@ def get_dashboard_products_stats(db: Session, current_user: User, duration_type:
 
 def get_dashboard_order_stats(db: Session, current_user: User, duration_type: int = 1):
     """
-    Returns order metrics for dashboard
-    Employee: pending/new orders only
-    Admin: full metrics including revenue, avg order value, cancellations
+    Returns order metrics for dashboard.
+    - Employee: only their own orders + pending count
+    - Admin: full metrics (revenue, avg order value, cancellations, etc.)
     """
-
     business_id = current_user.business_id
     now = datetime.now(timezone.utc)
 
-    # Determine start/end based on duration_type
+    # --------------------------
+    # Duration filter
+    # --------------------------
     if duration_type == 1:  # Current Month
         start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
     elif duration_type == 2:  # Current Week
         start_date = now - timedelta(days=now.weekday())
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
     elif duration_type == 3:  # Today
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
     elif duration_type == 4:  # Last Month
         first_day_current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start_date = first_day_current_month - relativedelta(months=1)
-        start_date = start_date.replace(day=1)
+        start_date = (first_day_current_month - relativedelta(months=1)).replace(day=1)
         end_date = first_day_current_month - timedelta(seconds=1)
     elif duration_type == 5:  # Last 3 Months
         start_date = now - relativedelta(months=3)
+        end_date = now
     elif duration_type == 6:  # Last 6 Months
         start_date = now - relativedelta(months=6)
-    else:
+        end_date = now
+    else:  # Default → current month
         start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
 
-    filter_start = start_date
-    filter_end = now if duration_type != 4 else end_date
+    # --------------------------
+    # Base filters
+    # --------------------------
+    filters = [
+        Order.business_id == business_id,
+        Order.created_at >= start_date,
+        Order.created_at <= end_date
+    ]
 
-    # Employee View: only pending orders
+    # Employee restriction
     if current_user.role == RoleTypeEnum.EMPLOYEE:
-        pending_orders_count = db.query(Order).filter(
-            Order.business_id == business_id,
-            Order.status == 'pending',
-            Order.created_at >= filter_start,
-            Order.created_at <= filter_end
-        ).count()
+        filters.append(Order.created_by_user_id == current_user.id)
 
-        return {
-            "pending_orders": pending_orders_count
-        }
-
-    # Admin View: full stats
-    total_orders = db.query(Order).filter(
-        Order.business_id == business_id,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).count()
-
-    pending_orders = db.query(Order).filter(
-        Order.business_id == business_id,
-        Order.order_status == CartOrderStatus.PENDING,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).count()
-
-    completed_orders = db.query(Order).filter(
-        Order.business_id == business_id,
-        Order.order_status == CartOrderStatus.COMPLETED,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).count()
-
-    cancelled_orders = db.query(Order).filter(
-        Order.business_id == business_id,
-        Order.order_status == CartOrderStatus.CANCELLED,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).count()
-
-    revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-        Order.business_id == business_id,
-        Order.order_status == CartOrderStatus.COMPLETED,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).scalar()
-
-    avg_order_value = db.query(func.coalesce(func.avg(Order.total_amount), 0)).filter(
-        Order.business_id == business_id,
-        Order.order_status == CartOrderStatus.COMPLETED,
-        Order.created_at >= filter_start,
-        Order.created_at <= filter_end
-    ).scalar()
+    # --------------------------
+    # aggregated query
+    # --------------------------
+    results = (
+        db.query(
+            func.count(Order.id).label("total_orders"),
+            func.sum(case((Order.order_status == CartOrderStatus.PENDING, 1), else_=0)).label("pending_orders"),
+            func.sum(case((Order.order_status == CartOrderStatus.COMPLETED, 1), else_=0)).label("completed_orders"),
+            func.sum(case((Order.order_status == CartOrderStatus.CANCELLED, 1), else_=0)).label("cancelled_orders"),
+            func.coalesce(func.sum(case((Order.order_status == CartOrderStatus.COMPLETED, Order.total_amount), else_=0)), 0).label("revenue"),
+            func.coalesce(func.avg(case((Order.order_status == CartOrderStatus.COMPLETED, Order.total_amount), else_=None)), 0).label("avg_order_value"),
+        )
+        .filter(*filters)
+        .one()
+    )
 
     return {
-        "total_orders": total_orders,
-        "pending_orders": pending_orders,
-        "completed_orders": completed_orders,
-        "cancelled_orders": cancelled_orders,
-        "revenue": float(revenue),
-        "avg_order_value": float(avg_order_value)
+        "total_orders": results.total_orders or 0,
+        "pending_orders": results.pending_orders or 0,
+        "completed_orders": results.completed_orders or 0,
+        "cancelled_orders": results.cancelled_orders or 0,
+        "revenue": float(results.revenue or 0),
+        "avg_order_value": float(results.avg_order_value or 0),
     }
 
 def get_sales_graph_data(
     db: Session,
-    current_user,
+    current_user:User,
     is_weekly: bool = True,
     is_monthly: bool = False,
     is_daily: bool = False

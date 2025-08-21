@@ -1,5 +1,5 @@
 {
-  "username_exists": "Username already exists.",
+  "user_exists": "User already exists.",
   "registration_success": "User registered successfully.",
   "registration_error": "An error occurred during registration.",
   "invalid_credentials": "Invalid username or password.",

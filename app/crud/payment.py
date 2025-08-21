@@ -14,7 +14,7 @@ from app.schemas.notification import NotificationCreate
 from app.schemas.payment import CreateOrder, PlaceOrder, RazorpayPaymentVerify
 from app.services.notifications.notification_service import send_notification
 from app.services.payments.razorpay_service import create_razorpay_order, fetch_razorpay_payment
-
+from app.services.messaging import gupshup as gupshup
 
 def create_order(db: Session, order: CreateOrder):
     try:
@@ -231,6 +231,25 @@ def verify_user_payment(
             )
             db.add(new_user_plan)
             new_user = db.query(User).filter(User.id == order.user_id).first()
+            # 🗓️ Format date to "1 December 2025"
+            valid_date = end_date.strftime("%-d %B %Y")  # on Linux/Mac
+            # If on Windows, use %#d instead of %-d:
+            # valid_date = end_date.strftime("%#d %B %Y")
+
+            # 💰 Format amount with ₹ symbol and 2 decimals
+            amount_str = f"₹{order.final_amount:,.2f}"
+            sent = gupshup.send_whatsapp_transaction_gupshup(
+                isd_code=new_user.isd_code,
+                phone_number=new_user.phone_number,
+                name=new_user.first_name,
+                amount=amount_str,
+                valid=valid_date,
+                plan=(
+                    "FREE" if order.plan_id == 1
+                    else "BASIC" if order.plan_id == 2
+                    else "PREMIUM"
+                )
+            )
             if new_user and new_user.referred_by:
                 add_credit(
                     db=db,

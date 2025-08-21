@@ -10,7 +10,7 @@ from app.helpers.translator import Translator
 from app.crud import user as crud_user
 from app.models.enums import RoleTypeEnum
 from app.models.user import UserTourProgress
-from app.schemas.user import ChangePassword, CreateDownlineUser, UserUpdate, UserOut
+from app.schemas.user import ChangePassword, CreateDownlineUser, UpdatePermission, UserUpdate, UserOut, VerifyOtp
 from app.services.payments.razorpay_service import *
 from fastapi.encoders import jsonable_encoder
 
@@ -89,34 +89,7 @@ def get_platform_users(request: Request, db: Session = Depends(get_db),current_u
         return ResponseHandler.success(data=jsonable_encoder(users))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-    
-@router.post("/create-downline-user")
-def create_downline_user(
-    payload: CreateDownlineUser,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    lang = get_lang_from_request(request)
-
-    try:
-        # Only Superadmin, Platform Admin, or Admin can create downline users
-        if current_user.role not in [RoleTypeEnum.SUPERADMIN,RoleTypeEnum.ADMIN,RoleTypeEnum.PLATFORM_ADMIN]:
-            raise ResponseHandler.unauthorized(code=403, message=translator.t("unauthorized", lang))
-
-        # Prevent creation of other admins unless current user is Superadmin
-        if payload.role in [RoleTypeEnum.PLATFORM_ADMIN, RoleTypeEnum.ADMIN] and current_user.role != RoleTypeEnum.SUPERADMIN:
-            raise ResponseHandler.unauthorized(code=403, message=translator.t("unauthorized", lang))
-
-        new_user = crud_user.create_downline_user(db, payload, current_user)
-
-        return ResponseHandler.success(
-            message=translator.t("user_created_successfully", lang),
-            data=jsonable_encoder(new_user)
-        )
-    except Exception as e:
-        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
-    
+      
 @router.get("/tours/pending")
 def get_pending_tours(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
@@ -147,3 +120,59 @@ def complete_tour(tour_key: str, db: Session = Depends(get_db), current_user: Us
         tour.completed = True
     db.commit()
     return ResponseHandler.success(data=True)
+
+@router.post("/verify-otp")
+def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        # 1️⃣ Verify OTP
+        user = crud_user.get_user_by_email_or_phone(db, payload.phone_number)
+        if user:
+            return ResponseHandler.success(message=translator.t("user_exists",lang))
+        otp_entry = crud_user.verify_otp(db=db, payload=payload)
+        return ResponseHandler.success(
+            data=jsonable_encoder(otp_entry),
+            message=translator.t("otp_verified_success", lang)
+        )
+
+    except Exception as e:
+        return ResponseHandler.bad_request(
+            message=translator.t(str(e), lang),
+            error=str(e)
+        )
+
+@router.post("/create-downline-user")
+def create_downline_user(
+    payload: CreateDownlineUser,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    lang = get_lang_from_request(request)
+    try:
+        new_user = crud_user.create_downline_user(db, payload, current_user)
+
+        return ResponseHandler.success(
+            message=translator.t("user_created_successfully", lang),
+            data=jsonable_encoder(new_user)
+        )
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t(str(e), lang), error=str(e))
+  
+@router.get("/get-downline")
+def get_downline(request: Request, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
+    lang = get_lang_from_request(request)
+    try:
+        users = crud_user.get_downline(db,current_user)
+        return ResponseHandler.success(data=jsonable_encoder(users))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+    
+@router.post("/update-permissions")
+def update_permissions(payload:UpdatePermission, request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        users = crud_user.update_permissions(db,payload)
+        return ResponseHandler.success(message=translator.t("updated_successfully", lang),data=jsonable_encoder(users))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

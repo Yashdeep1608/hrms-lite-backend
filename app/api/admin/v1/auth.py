@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 from app.helpers.utils import get_lang_from_request
-from app.models.enums import OtpTypeEnum, PlanStatus
+from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
 from app.models.plan import Plan
 from app.schemas.user import SendOtp, UserCreate, ForgetPassword, ResetPassword, UserUpdate, VerifyOtp
 from app.crud import user as crud_user
@@ -48,19 +48,19 @@ def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
                 if user.is_active and user.business.is_active:
                     return ResponseHandler.success(
                         data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
-                        message=translator.t("username_exists", lang),
+                        message=translator.t("user_exists", lang),
                         code=201
                     )
                 if user.is_active and not user.business.is_active:
                     return ResponseHandler.success(
                         data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
-                        message=translator.t("username_exists", lang),
+                        message=translator.t("user_exists", lang),
                         code=202
                     )
                 elif not user.is_active and not user.business.is_active:
                     return ResponseHandler.success(
                         data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
-                        message=translator.t("username_exists", lang),
+                        message=translator.t("user_exists", lang),
                         code=203
                     )
 
@@ -102,7 +102,7 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
             access_token = create_access_token(data={"sub": str(user.id)})
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
-                message=translator.t("username_exists", lang),
+                message=translator.t("user_exists", lang),
                 code=203
             )
         return ResponseHandler.success(
@@ -118,62 +118,69 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
         )
 
 @router.post("/login")
-def login_user(request: Request,form_data: LoginForm = Depends(),db: Session = Depends(get_db)):
+def login_user(
+    request: Request,
+    form_data: LoginForm = Depends(),
+    db: Session = Depends(get_db)
+):
     lang = get_lang_from_request(request)
     try:
-        user = crud_user.get_user_by_email_or_phone(db,form_data.phone_number,True)
+        user = crud_user.get_user_by_email_or_phone(db, form_data.phone_number, True)
         if not user or not (verify_username_password(form_data.password, user.password)):
             return ResponseHandler.unauthorized(message=translator.t("invalid_credentials", lang))
-        
-        access_token = create_access_token(data={"sub": str(user.id)})
-        # Case: User active, business active, but no active plan
-        if (
-            user.is_active 
-            and user.business.is_active 
-            and (
-                not user.plans 
-                or not any(plan.status == PlanStatus.ACTIVE for plan in user.plans)
-            )
-        ):
-            return ResponseHandler.success(
-                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("login_success", lang),
-                code=201
-            )
 
-        # Case: User active, business active, plans at all
-        elif user.is_active and user.business.is_active and (
-                user.plans 
-                and any(plan.status == PlanStatus.ACTIVE for plan in user.plans)
-            ):
+        access_token = create_access_token(data={"sub": str(user.id)})
+
+        # Case 0: Internal roles → always allow
+        INTERNAL_ROLES = {RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN,RoleTypeEnum.SALES,RoleTypeEnum.DEVELOPER,RoleTypeEnum.SUPPORT}
+
+        if user.role in INTERNAL_ROLES:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
                 message=translator.t("login_success", lang),
                 code=200
             )
 
-        # Case: User active, business inactive, no plans
+        # Case 1: User active, business active, but no active plan
+        if user.is_active and user.business.is_active and not user.active_plan:
+            return ResponseHandler.success(
+                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
+                message=translator.t("login_success", lang),
+                code=201
+            )
+
+        # Case 2: User active, business active, has active plan
+        elif user.is_active and user.business.is_active and user.active_plan:
+            return ResponseHandler.success(
+                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
+                message=translator.t("login_success", lang),
+                code=200
+            )
+
+        # Case 3: User active, business inactive
         elif user.is_active and not user.business.is_active:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("username_exists", lang),
+                message=translator.t("user_exists", lang),
                 code=202
             )
 
-        # Case: User inactive, business inactive, no plans
+        # Case 4: User inactive
         elif not user.is_active:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("username_exists", lang),
+                message=translator.t("user_exists", lang),
                 code=203
             )
 
+        # Default case
         return ResponseHandler.success(
-            data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
+            data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
             message=translator.t("login_success", lang)
         )
+
     except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("login_failed", lang),error=str(e))
+        return ResponseHandler.bad_request(message=translator.t("login_failed", lang), error=str(e))
 
 @router.post("/forgot-password")
 def forgot_password(request: Request,payload: ForgetPassword, db: Session = Depends(get_db)):
