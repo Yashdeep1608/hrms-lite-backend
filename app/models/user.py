@@ -107,6 +107,11 @@ class UserOrder(Base):
     gst_amount = Column(Float, nullable=False)
     final_amount = Column(Float, nullable=False)
 
+    # 🔹 New: Extra Users Purchased
+    extra_users = Column(Integer, default=0)   # how many added in this order
+    pro_rata_days = Column(Integer, default=0)  # days calculated for pro_rata pricing
+    per_user_price = Column(Float, default=0.0)  # price per user per day/year
+
     razorpay_order_id = Column(String, nullable=True)
     status = Column(Enum(OrderStatus), default=OrderStatus.CREATED)
         

@@ -14,30 +14,31 @@ from app.services.payments.razorpay_service import verify_razorpay_signature
 router = APIRouter(
     prefix="/api/admin/v1/payment",
     tags=["Payment"],
+    dependencies=[Depends(get_current_user)]
 )
 translator = Translator()
 
 
 @router.post("/create-order")
-def create_order(request: Request, payload: CreateOrder, db: Session = Depends(get_db)):
+def create_order(request: Request, payload: CreateOrder, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        order = crud_payment.create_order(db, payload)
+        order = crud_payment.create_order(db, payload,current_user)
         return ResponseHandler.success(data= jsonable_encoder(order))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("create_order_failed", lang), error=str(e))
     
 @router.post("/place-order")
-def place_order(request: Request, payload: PlaceOrder, db: Session = Depends(get_db)):
+def place_order(request: Request, payload: PlaceOrder, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        order = crud_payment.place_order(db, payload)
+        order = crud_payment.place_order(db, payload,current_user)
         return ResponseHandler.success(data= jsonable_encoder(order))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("create_order_failed", lang), error=str(e))
 
 @router.post("/verify-payment")
-def verify_payment(payload: RazorpayPaymentVerify, db: Session = Depends(get_db)):
+def verify_payment(payload: RazorpayPaymentVerify, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     try:
         is_valid = verify_razorpay_signature(
             payment_id=payload.payment_id,
@@ -47,7 +48,7 @@ def verify_payment(payload: RazorpayPaymentVerify, db: Session = Depends(get_db)
         if not is_valid:
             return ResponseHandler.bad_request(message="Invalid payment signature.")
 
-        payment = crud_payment.verify_user_payment(db,payload)
+        payment = crud_payment.verify_user_payment(db,payload,current_user)
 
         return ResponseHandler.success(message="Payment verified successfully.", data={"payment_id": str(payment.id)})
 

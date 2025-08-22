@@ -15,10 +15,6 @@ from app.schemas.business import BusinessOut
 from app.core.config import settings
 from sqlalchemy.orm import joinedload
 
-PLAN_LIMITS = {
-    2: {"total": 2, "admin": 0, "employee": 2},   # Basic plan
-    3: {"total": 10, "admin": 2, "employee": 8},  # Premium plan
-}
 INTERNAL_ROLES = {RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN,RoleTypeEnum.SALES,RoleTypeEnum.DEVELOPER,RoleTypeEnum.SUPPORT}
 
 def generate_unique_referral_code(db: Session, length: int = 8) -> str:
@@ -358,34 +354,6 @@ def create_downline_user(db: Session, payload: CreateDownlineUser, current_user:
     )
     if not active_plan:
         raise Exception("You don't have an active plan")
-
-    plan_limits = PLAN_LIMITS.get(active_plan.plan_id)
-    if not plan_limits:
-        raise Exception("Plan limits not configured")
-
-    # 3. Count existing downline users
-    total_downline = db.query(User).filter(User.parent_user_id == current_user.id).count()
-
-    # Role-based limits (only for business roles)
-    if payload.role == "admin":
-        admin_count = db.query(User).filter(
-            User.parent_user_id == current_user.id,
-            User.role == "admin"
-        ).count()
-        if admin_count >= plan_limits["admin"]:
-            raise Exception("Admin limit reached for your plan")
-
-    elif payload.role == "employee":
-        employee_count = db.query(User).filter(
-            User.parent_user_id == current_user.id,
-            User.role == "employee"
-        ).count()
-        if employee_count >= plan_limits["employee"]:
-            raise Exception("Employee limit reached for your plan")
-
-    # Total check
-    if total_downline >= plan_limits["total"]:
-        raise Exception("User limit reached for your plan")
 
     # 4. Create new user
     return _create_downline_user(db, payload, current_user)

@@ -34,6 +34,8 @@ class Business(Base):
     
     is_active = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
+    
+    extra_users = Column(Integer, default=0)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
