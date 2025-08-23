@@ -309,15 +309,16 @@ def verify_user_payment(db: Session,payload:RazorpayPaymentVerify,current_user:U
                         meta={"reason": "User subscribed to plan", "plan_id": order.plan_id}
                     )
         elif not order.plan_id and order.order_type == 'user_add':
-            business  = db.query(Business).filter(Business.id  == order.business_id).first()
+            business  = db.query(Business).filter(Business.id  == current_user.business_id).first()
+            user = db.query(User).filter(User.id == current_user.id).first()
             if not business:
                 return Exception("business_not_found")
             amount_str = f"₹{order.per_user_price:,.2f}"
             total_amount_str = f"₹{order.final_amount:,.2f}"
             sent = gupshup.send_whatsapp_transaction2_gupshup(
-                    isd_code=new_user.isd_code,
-                    phone_number=new_user.phone_number,
-                    name=new_user.first_name,
+                    isd_code=user.isd_code,
+                    phone_number=user.phone_number,
+                    name=user.first_name,
                     users=str(order.extra_users),
                     amount=amount_str,
                     valid=str(order.pro_rata_days),
