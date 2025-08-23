@@ -176,3 +176,13 @@ def update_permissions(payload:UpdatePermission, request: Request, db: Session =
         return ResponseHandler.success(message=translator.t("updated_successfully", lang),data=jsonable_encoder(users))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+    
+@router.get("/get-permissions")
+def get_permissions(user_id:int,request: Request, db: Session = Depends(get_db)):
+    lang = get_lang_from_request(request)
+    try:
+        permissions = crud_user.get_permissions(db,user_id=user_id)
+        return ResponseHandler.success(data=jsonable_encoder(permissions))
+    except Exception as e:
+        return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
+    

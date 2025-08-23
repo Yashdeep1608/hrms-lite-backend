@@ -3,7 +3,7 @@ import random
 import string
 from typing import Optional
 from sqlalchemy.orm import Session
-from app.models.user import User, UserPlan
+from app.models.user import User, UserCredit, UserPlan
 from app.models.user_otp import UserOTP
 from app.schemas.user import ChangePassword, CreateDownlineUser, UpdatePermission,UserCreate, UserOut, UserUpdate, VerifyOtp
 from app.core.security import *
@@ -90,9 +90,6 @@ def get_user_by_email_or_phone(db: Session, email_or_phone: str, is_active: bool
         user = query.first()
         
         if user.role not in INTERNAL_ROLES:
-            if not user:
-                return None
-
             plan_query = db.query(UserPlan).filter(UserPlan.status == PlanStatus.ACTIVE)
             if user.role == RoleTypeEnum.ADMIN:
                 plan_query = plan_query.filter(UserPlan.user_id == user.id)
@@ -266,11 +263,17 @@ def get_user_profile_data(db: Session, user: User):
                 }
         
     user.password = None
+    credits = 0
+    creditsData = get_user_credits(db,user)
+    if not creditsData:
+        credits = 0
+    credits = creditsData.balance_after if creditsData.balance_after and creditsData.balance_after > 0 else 0
     return {
         "user": user,
         "business": business,
         "permissions": combined_keys,
-        "plan":plan_data
+        "plan":plan_data,
+        "credits":credits
     }
 # Update User
 def update_user(db: Session, user_id: int, data: UserUpdate):
@@ -403,4 +406,9 @@ def update_permissions(db:Session , payload:UpdatePermission):
     db.commit()
     db.refresh(permission)
     return permission
-    
+
+def get_permissions(db:Session, user_id):
+    return db.query(UserPermission).filter(UserPermission.user_id == user_id).first()
+
+def get_user_credits(db:Session, current_user:User):
+    return db.query(UserCredit).filter(UserCredit.user_id == current_user.id).order_by(UserCredit.created_at.desc()).first();

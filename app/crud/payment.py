@@ -239,28 +239,24 @@ def verify_user_payment(db: Session,payload:RazorpayPaymentVerify,current_user:U
         elif payment.status == PaymentStatus.PENDING:
             order.status = OrderStatus.PENDING
     
-    # ✅ If payment completed and plan_id exists, create UserPlan
-    if payment.status == PaymentStatus.SUCCESS:
-        if order.plan_id and order.order_type == 'registration':
+        if payment.status == PaymentStatus.SUCCESS and order.plan_id and order.order_type == 'registration':
             plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
-
             if not plan:
                 raise Exception("plan_not_found")
 
-            existing_plan = db.query(UserPlan).filter(
-                UserPlan.user_id == order.user_id
-            ).first()
-
+            existing_plan = db.query(UserPlan).filter(UserPlan.user_id == order.user_id,UserPlan.status == PlanStatus.ACTIVE).first()
             now = datetime.now(timezone.utc)
             start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # End of the Nth day (inclusive): 23:59:59.999999
             end_date = (start_date + timedelta(days=plan.duration_days or 30)).replace(
                 hour=23, minute=59, second=59, microsecond=999999
             )
 
             if existing_plan:
-                # ✅ Update existing plan
+                # If it's a free trial, don't allow re-use
+                if plan.id == 1 and existing_plan.plan_id == 1:
+                    raise Exception("free_trial_already_used")
+
+                # Update existing plan only for paid plans
                 existing_plan.payment_id = payment.id
                 existing_plan.start_date = start_date
                 existing_plan.end_date = end_date
@@ -269,7 +265,7 @@ def verify_user_payment(db: Session,payload:RazorpayPaymentVerify,current_user:U
                 db.commit()
                 db.refresh(existing_plan)
             else:
-                # ✅ Create new plan
+                # Create new plan
                 new_user_plan = UserPlan(
                     user_id=order.user_id,
                     plan_id=order.plan_id,
@@ -277,44 +273,48 @@ def verify_user_payment(db: Session,payload:RazorpayPaymentVerify,current_user:U
                     start_date=start_date,
                     end_date=end_date,
                     status=PlanStatus.ACTIVE,
-                    is_trial=False
+                    is_trial=(plan.id == 1)
                 )
                 db.add(new_user_plan)
-                new_user = db.query(User).filter(User.id == order.user_id).first()
-                # 🗓️ Format date to "1 December 2025"
-                valid_date = end_date.strftime("%-d %B %Y")  # on Linux/Mac
-                # If on Windows, use %#d instead of %-d:
-                # valid_date = end_date.strftime("%#d %B %Y")
+                db.commit()
+                db.refresh(new_user_plan)
 
-                # 💰 Format amount with ₹ symbol and 2 decimals
+                new_user = db.query(User).filter(User.id == order.user_id).first()
+
+                # Send WhatsApp message
+                valid_date = end_date.strftime("%-d %B %Y")  # Linux/Mac
                 amount_str = f"₹{order.final_amount:,.2f}"
-                sent = gupshup.send_whatsapp_transaction_gupshup(
+                gupshup.send_whatsapp_transaction_gupshup(
                     isd_code=new_user.isd_code,
                     phone_number=new_user.phone_number,
                     name=new_user.first_name,
                     amount=amount_str,
                     valid=valid_date,
-                    plan=(
-                        "FREE" if order.plan_id == 1
-                        else "BASIC" if order.plan_id == 2
-                        else "PREMIUM"
-                    )
+                    plan=("FREE" if plan.id == 1 else 'PRO')
                 )
-                if new_user and new_user.referred_by:
-                    add_credit(
-                        db=db,
-                        user_id=new_user.referred_by,            # Referrer gets credit
-                        source_user_id=new_user.id,              # This new user caused it
-                        credit_type=CreditType.REFERRAL_USER,    # logic
-                        meta={"reason": "User subscribed to plan", "plan_id": order.plan_id}
-                    )
-        elif not order.plan_id and order.order_type == 'user_add':
+
+                # Referral credit only for first paid plan
+                if new_user.referred_by and plan.id != 1:
+                    # Check if user had any previous paid plans
+                    paid_plan_exists = db.query(UserPlan).filter(
+                        UserPlan.user_id == new_user.id,
+                        UserPlan.plan_id != 1
+                    ).first()
+                    if not paid_plan_exists:
+                        add_credit(
+                            db=db,
+                            user_id=new_user.referred_by,
+                            source_user_id=new_user.id,
+                            credit_type=CreditType.REFERRAL_USER,
+                            meta={"reason": "User subscribed to plan", "plan_id": order.plan_id}
+                        )
+        elif payment.status == PaymentStatus.SUCCESS and not order.plan_id and order.order_type == 'user_add':
             business  = db.query(Business).filter(Business.id  == current_user.business_id).first()
             user = db.query(User).filter(User.id == current_user.id).first()
             if not business:
                 return Exception("business_not_found")
-            amount_str = f"₹{order.per_user_price:,.2f}"
-            total_amount_str = f"₹{order.final_amount:,.2f}"
+            amount_str = f"{order.per_user_price:,.2f}"
+            total_amount_str = f"{order.final_amount:,.2f}"
             sent = gupshup.send_whatsapp_transaction2_gupshup(
                     isd_code=user.isd_code,
                     phone_number=user.phone_number,
@@ -324,7 +324,7 @@ def verify_user_payment(db: Session,payload:RazorpayPaymentVerify,current_user:U
                     valid=str(order.pro_rata_days),
                     total_amount=total_amount_str
                 )
-            business.extra_users += order.extra_users
+            business.extra_users = business.extra_users + order.extra_users if business.extra_users else  order.extra_users
 
     db.commit()
     return payment
@@ -337,23 +337,22 @@ def add_credit(
     code_used: str = None,
     meta: dict = None
 ):
-    # Fetch the user to check role if needed
+    # Fetch the user who will get the credit
     user = db.query(User).filter(User.id == user_id).first()
-    code_used = user.referral_code
     if not user:
         raise Exception("user_not_found")
 
-    # Flat credit amount for any eligible user
-    amount = 100.0
+    # Always use the user's referral code
+    code_used = user.referral_code
 
-    # Optional: you can adjust based on role
-    # Example:  
-    if user.role == RoleTypeEnum.ADMIN:
-        amount = 200.0
-    elif user.role == RoleTypeEnum.EMPLOYEE:
-        amount = 100.0
+    # Default flat credit
+    amount = 150.0
+
+    # Adjust credit based on role
+    if user.role == RoleTypeEnum.ADMIN or user.role == RoleTypeEnum.EMPLOYEE:
+        amount = 150.0
+
     elif user.role == RoleTypeEnum.PLATFORM_ADMIN:
-        # Get source user's last completed order
         credit_type = CreditType.REFERRAL_PLATFORM
         source_order = (
             db.query(UserOrder)
@@ -366,8 +365,8 @@ def add_credit(
         )
         if not source_order:
             raise Exception("source_user_no_completed_order")
-        
-        percentage = 0.4 if source_order.final_amount < 10000 else 0.3
+
+        percentage = 0.25
         amount = round(source_order.final_amount * percentage, 2)
 
     elif user.role == RoleTypeEnum.SALES:
@@ -383,41 +382,71 @@ def add_credit(
         )
         if not source_order:
             raise Exception("source_user_no_completed_order")
-        
-        percentage = 0.25 if source_order.final_amount < 10000 else 0.2
+
+        percentage = 0.20
         amount = round(source_order.final_amount * percentage, 2)
 
-    # Get last balance
+        # Also credit the parent user 5% of the same order
+        if user.parent_user_id:
+            parent_user = db.query(User).filter(User.id == user.parent_user_id).first()
+            if parent_user:
+                last_credit_parent = (
+                    db.query(UserCredit)
+                    .filter(UserCredit.user_id == parent_user.id)
+                    .order_by(UserCredit.created_at.desc())
+                    .first()
+                )
+                previous_balance_parent = last_credit_parent.balance_after if last_credit_parent else 0.0
+                parent_credit_amount = round(source_order.final_amount * 0.05, 2)
+
+                parent_credit = UserCredit(
+                    user_id=parent_user.id,
+                    source_user_id=source_user_id,
+                    amount=parent_credit_amount,
+                    type=CreditType.REFERRAL_PARENT,
+                    code_used=parent_user.referral_code,
+                    meta={"reason": "Child sales commission", **(meta or {})},
+                    balance_after=previous_balance_parent + parent_credit_amount
+                )
+                db.add(parent_credit)
+
+    # Get last balance for main user
     last_credit = (
         db.query(UserCredit)
-        .filter(UserCredit.user_id == source_user_id)
+        .filter(UserCredit.user_id == user_id)
         .order_by(UserCredit.created_at.desc())
         .first()
     )
-    previous_balance = last_credit.balance_after if last_credit and  last_credit.balance_after else 0.0
+    previous_balance = last_credit.balance_after if last_credit else 0.0
 
+    # Create main credit record
     new_credit = UserCredit(
-        user_id=user_id,               # who gets the credit
-        source_user_id=source_user_id, # who triggered it
+        user_id=user_id,
+        source_user_id=source_user_id,
         amount=amount,
         type=credit_type,
         code_used=code_used,
         meta=meta or {},
         balance_after=previous_balance + amount,
     )
+
+    db.add(new_credit)
+    db.commit()
+    db.refresh(new_credit)
+
+    # Optional: send notification asynchronously
     try:
         asyncio.run(send_notification(
             db,
             NotificationCreate(
                 user_id=user_id,
                 type=NotificationType.ORDER,
-                message=f"Your just credited amount of {amount}",
-                url="/dashboard"
+                message=f"You have been credited ₹{amount}",
+                url=None
             )
         ))
     except Exception as e:
-        raise Exception(str(e))
-    db.add(new_credit)
-    db.commit()
-    db.refresh(new_credit)
+        print(f"Notification error: {str(e)}")
+
     return new_credit
+
