@@ -258,7 +258,7 @@ def get_expense_by_id(db: Session, expense_id: int):
 def get_expenses(db: Session, filters: ExpenseFilters, current_user: User):
     query = db.query(Expense).options(
         joinedload(Expense.category)  # eager load category
-    )
+    ).filter(Expense.business_id == current_user.business_id)
 
     if filters.category_id:
         query = query.filter(Expense.category_id == filters.category_id)
@@ -503,7 +503,7 @@ def get_loan_by_id(db: Session, loan_id: int):
     }
 
 def get_loans(db: Session,filters:LoanFilters,current_user:User):
-    query = db.query(Loan)
+    query = db.query(Loan).filter(Loan.business_id == current_user.business_id)
 
     if filters.search:
         query = query.filter(or_(Loan.notes.like(f"%{filters.search}%"),))
@@ -668,7 +668,7 @@ def update_supplier(db: Session, supplier_id: int, payload: AddEditSupplier):
     return supplier
 
 def get_suppliers(db: Session,filters:SupplierFilters,current_user:User):
-    query = db.query(Supplier)
+    query = db.query(Supplier).filter(Supplier.business_id == current_user.business_id)
 
     if filters.search:
         query = query.filter(or_(

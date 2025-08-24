@@ -267,7 +267,8 @@ def get_user_profile_data(db: Session, user: User):
     creditsData = get_user_credits(db,user)
     if not creditsData:
         credits = 0
-    credits = creditsData.balance_after if creditsData.balance_after and creditsData.balance_after > 0 else 0
+    else:
+        credits = creditsData.balance_after if creditsData.balance_after and creditsData.balance_after > 0 else 0
     return {
         "user": user,
         "business": business,

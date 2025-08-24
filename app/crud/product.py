@@ -149,26 +149,26 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
             expiry_date = product_in.expiry_date
         )
         db.add(product_batch)
+        db.flush()  # Get product.id for SKU generation
+        add_product_stock_log(
+            db=db,
+            product_id=product.id,
+            quantity=product_batch.quantity,
+            is_stock_in=True,
+            batch_id=product_batch.id,
+            stock_before=0,
+            unit_price=product_batch.purchase_price,
+            stock_after=product_batch.quantity,
+            source=ProductStockSource.MANUAL,
+            source_id=None,
+            created_by=current_user.id if current_user.id else None,
+            notes=f"Product added manually from product {product.sku}"
+        )
     # Recursively create variants
     for variant_data in product_in.variants or []:
         variant_data.parent_product_id = product.id
         variant_data.is_variant = True
         create_product(db, variant_data, current_user)
-
-    add_product_stock_log(
-        db=db,
-        product_id=product.id,
-        quantity=product_batch.quantity,
-        is_stock_in=True,
-        batch_id=product_batch.id,
-        stock_before=0,
-        unit_price=product_batch.purchase_price,
-        stock_after=product_batch.quantity,
-        source=ProductStockSource.MANUAL,
-        source_id=None,
-        created_by=current_user.id if current_user.id else None,
-        notes=f"Product added manually from product {product.sku}"
-    )
 
     db.commit()
     db.refresh(product)
@@ -654,6 +654,15 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
     product = db.query(Product).filter(Product.id == data.product_id).first()
     if not product:
         raise ValueError(f"Product with ID {data.product_id} not found")
+    
+    stock_before = (
+        db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+        .filter(
+            ProductBatch.product_id == data.product_id,
+            ProductBatch.is_expired == False
+        )
+        .scalar()
+    )
 
     is_stock_in = False
     if data.source in [ProductStockSource.MANUAL, ProductStockSource.ADJUSTMENT]:
@@ -691,14 +700,6 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
         unit_price = batch.quantity * calculate_final_price(Product)
 
     db.flush()
-    stock_before = (
-        db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
-        .filter(
-            ProductBatch.product_id == data.product_id,
-            ProductBatch.is_expired == False
-        )
-        .scalar()
-    )
     # Stock log
     add_product_stock_log(
         db=db,

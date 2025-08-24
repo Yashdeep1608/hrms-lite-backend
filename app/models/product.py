@@ -22,7 +22,7 @@ class Product(Base):
     description = Column(Text, nullable=True)
     slug = Column(String(255), unique=True, nullable=True)
     sku = Column(String(100), unique=True, nullable=True)
-    image_url = Column(String, unique=True, nullable=True)
+    image_url = Column(String, nullable=True)
     barcode = Column(String, unique=True, nullable=True)
     qrcode = Column(String, unique=True, nullable=True)
     selling_price = Column(Numeric(10,2), nullable=True)
