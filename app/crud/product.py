@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from slugify import slugify
-from sqlalchemy import any_, asc, desc, distinct, not_, or_,func,and_, select
+from sqlalchemy import any_, asc, case, desc, distinct, not_, or_,func,and_, select
 from sqlalchemy.orm import Session,joinedload,aliased
 from app.helpers.utils import generate_barcode, generate_qr_code
 from app.models.business import Business
@@ -774,7 +774,7 @@ def get_product_stock_report(
             Product.name,
             Product.image_url,
             Product.low_stock_alert,
-            func.coalesce(func.sum(ProductBatch.quantity), 0).label("available_stock"),
+            func.coalesce(func.sum(case((ProductBatch.is_expired == False, ProductBatch.quantity), else_=0)), 0).label("available_stock"),
         )
         .join(Product.batches)
         .filter(Product.business_id == business_id)

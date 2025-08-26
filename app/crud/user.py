@@ -91,7 +91,7 @@ def get_user_by_email_or_phone(db: Session, email_or_phone: str, is_active: bool
         
         if user.role not in INTERNAL_ROLES:
             plan_query = db.query(UserPlan).filter(UserPlan.status == PlanStatus.ACTIVE)
-            if user.role == RoleTypeEnum.ADMIN:
+            if user.role == RoleTypeEnum.ADMIN and user.parent_user_id is None:
                 plan_query = plan_query.filter(UserPlan.user_id == user.id)
             else:
                 plan_query = plan_query.filter(UserPlan.user_id == user.parent_user_id)

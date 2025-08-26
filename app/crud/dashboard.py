@@ -120,7 +120,7 @@ def get_dashboard_products_stats(db: Session, current_user: User, duration_type:
                 Product.id,
                 Product.name,
                 Product.low_stock_alert,
-                func.coalesce(func.sum(ProductBatch.quantity), 0).label("total_stock"),
+                func.coalesce(func.sum(case((ProductBatch.is_expired == False, ProductBatch.quantity), else_=0)), 0).label("total_stock"),
                 func.coalesce(func.sum(ProductBatch.quantity * ProductBatch.purchase_price), 0).label("inventory_value")
             )
             .join(Product.batches)
