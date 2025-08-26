@@ -168,10 +168,10 @@ def update_product_stock(payload: ProductStockUpdateSchema, request: Request, db
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))
 
 @router.post("/update-product-batch")
-def update_product_stock(payload: ProductBatchUpdate, request: Request, db: Session = Depends(get_db)):
+def update_product_stock(payload: ProductBatchUpdate, request: Request, db: Session = Depends(get_db),current_user=Depends(get_current_user)):
     lang = get_lang_from_request(request)
     try:
-        data = crud_product.update_product_batch(db, payload)
+        data = crud_product.update_product_batch(db, payload,current_user)
         return ResponseHandler.success(message=translator.t("updated_successfully", lang), data=jsonable_encoder(data))
     except Exception as e:
         return ResponseHandler.internal_error(message=translator.t("something_went_wrong", lang), error=str(e))

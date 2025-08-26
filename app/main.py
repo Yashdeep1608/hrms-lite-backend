@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from app.api.admin.v1 import public
 from app.helpers.response import ResponseHandler
 from app.helpers.translator import Translator
 from app.helpers.utils import get_lang_from_request
@@ -87,3 +88,4 @@ app.include_router(order.router)
 app.include_router(payables.router)
 app.include_router(payables.router)
 app.include_router(webhook.router)
+app.include_router(public.router)

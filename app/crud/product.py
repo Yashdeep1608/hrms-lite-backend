@@ -165,10 +165,11 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
             notes=f"Product added manually from product {product.sku}"
         )
     # Recursively create variants
-    for variant_data in product_in.variants or []:
-        variant_data.parent_product_id = product.id
-        variant_data.is_variant = True
-        create_product(db, variant_data, current_user)
+    if product_in.is_variant:
+        for variant_data in product_in.variants or []:
+            variant_data.parent_product_id = product.id
+            variant_data.is_variant = True
+            create_product(db, variant_data, current_user)
 
     db.commit()
     db.refresh(product)
@@ -699,6 +700,7 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
         batch.quantity -= data.quantity
         unit_price = batch.quantity * calculate_final_price(Product)
 
+
     db.flush()
     # Stock log
     add_product_stock_log(
@@ -725,11 +727,34 @@ def update_product_stock(db: Session, data: ProductStockUpdateSchema,current_use
         "unit_price": float(unit_price or 0)
     }
 
-def update_product_batch(db: Session, data: ProductBatchUpdate):
+def update_product_batch(db: Session, data: ProductBatchUpdate,current_user:User):
     batch = db.query(ProductBatch).filter(ProductBatch.id == data.id).first()
+    stock_before = (
+            db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+            .filter(
+                ProductBatch.product_id == batch.product_id,
+                ProductBatch.is_expired == False
+            )
+            .scalar()
+        )
     batch.expiry_date = data.expiry_date or None
     batch.packed_date = data.packed_date or None
     batch.is_expired = data.is_expired or False
+    if data.is_expired:
+        add_product_stock_log(
+            db=db,
+            product_id=batch.product_id,
+            quantity=batch.quantity,
+            is_stock_in=False,
+            batch_id=batch.id if batch else None,
+            stock_before=stock_before,
+            unit_price=batch.purchase_price,
+            stock_after=stock_before - batch.quantity,
+            source=ProductStockSource.EXPIRED,
+            source_id=batch.id,
+            created_by=current_user.id if current_user.id else None,
+            notes="Stock is expired"
+        )
     db.commit()
     return batch
 
