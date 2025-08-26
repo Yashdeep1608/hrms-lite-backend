@@ -1284,7 +1284,8 @@ def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user
             ).first()
 
         # Generate invoice details
-        order.invoice_number = generate_invoice_id(db,business_id=order.business.id)
+        if not order.invoice_number:
+            order.invoice_number = generate_invoice_id(db,business_id=order.business.id)
         order.invoice_url = generate_invoice(
             order,
             business=order.business,
@@ -1333,8 +1334,6 @@ def create_invoices(db: Session, order_id: int, is_all_order: bool, current_user
             ).filter(
                 Order.id == order_id,
                 Order.order_status.in_([CartOrderStatus.COMPLETED, CartOrderStatus.CONFIRMED]),
-                Order.invoice_number.is_(None),
-                Order.invoice_url.is_(None)
             ).first()
         if not order:
             raise ValueError(f"Order with ID {order_id} not available for invoice")

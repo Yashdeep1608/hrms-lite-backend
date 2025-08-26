@@ -286,9 +286,7 @@
           <tr>
             <td>Subtotal:</td>
             <td class="text-right">
-              ₹{{ '%.2f' % (order.subtotal + order.item_discount +
-              (order.coupon_discount or 0) + (order.offer_discount or 0) +
-              (order.additional_discount or 0)) }}
+              ₹{{ '%.2f' % (order.subtotal) }}
             </td>
           </tr>
           {% if order.item_discount %}
