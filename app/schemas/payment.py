@@ -14,7 +14,7 @@ class CreateOrder(BaseModel):
 class PlaceOrder(BaseModel):
     plan_id: Optional[int] = None
     coupon_code: Optional[str] = None
-    order_type: Optional[str] = None  # "registration", "user_add", etc.
+    order_type: Optional[str] = None  # "registration", "employee_add","upgrade or renewal" etc.
 
     # amounts
     original_amount: float

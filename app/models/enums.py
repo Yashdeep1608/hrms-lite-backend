@@ -61,6 +61,8 @@ class OrderType(str, enum.Enum):
     REGISTRATION = "registration"
     EMPLOYEE_ADD = "employee_add"
     FEATURE_PURCHASE = "feature_purchase"
+    UPGRADE = "upgrade"
+    RENEWAL = "renewal"
 
 class CreditType(str,enum.Enum):
     REFERRAL_USER = 'referral_user'              # When a user refers another user
