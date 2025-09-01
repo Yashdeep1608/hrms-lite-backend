@@ -78,8 +78,8 @@ def create_order(db: Session, order: CreateOrder, current_user: User):
         # ------------------------------
         # 📌 CASE 3: Feature Purchase (future use)
         # ------------------------------
-        elif order.order_type == "upgrade":
-            user_plan = db.query(UserPlan).filter(UserPlan.user_id == current_user.id,UserPlan.status == PlanStatus.ACTIVE).first()
+        elif order.order_type in [OrderType.UPGRADE,OrderType.RENEWAL] :
+            user_plan = db.query(UserPlan).filter(UserPlan.user_id == current_user.id).order_by(UserPlan.created_at.desc()).first()
             # fetch pro plan
             pro_plan = db.query(Plan).filter(Plan.name == "Pro").first()
            
@@ -435,66 +435,65 @@ def add_credit(
     amount, credit_type = calculate_credit_amount(db, user, source_user_id, credit_type)
 
     # --- Apply credit for user ---
-    new_credit = apply_credit(
-        db=db,
-        user_id=user.id,
-        source_user_id=source_user_id,
-        amount=amount,
-        credit_type=credit_type,
-        meta=meta
-    )
+    if amount > 0:
+        new_credit = apply_credit(
+            db=db,
+            user_id=user.id,
+            source_user_id=source_user_id,
+            amount=amount,
+            credit_type=credit_type,
+            meta=meta
+        )
 
-    # --- Handle parent commission (if needed) ---
-    if user.role == RoleTypeEnum.SALES and user.parent_user_id:
-        add_parent_commission(db, user, source_user_id, meta)
+        # --- Handle parent commission (if needed) ---
+        if user.role == RoleTypeEnum.SALES and user.parent_user_id:
+            add_parent_commission(db, user, source_user_id, meta)
 
-    # --- Commit and notify ---
-    db.commit()
-    send_credit_notification(db,user.id, amount)
-
-    return new_credit
+        # --- Commit and notify ---
+        db.commit()
+        send_credit_notification(db, user.id, amount)
+        return new_credit
+    else:
+        return None  # or just safely exit without applying anything
 
 def calculate_credit_amount(db: Session, user: User, source_user_id: int, credit_type: CreditType):
-    if user.role == RoleTypeEnum.ADMIN or user.role == RoleTypeEnum.EMPLOYEE:
-        return 150.0, credit_type
-
-    if user.role in [RoleTypeEnum.PLATFORM_ADMIN, RoleTypeEnum.SALES]:
-        source_order = (
-            db.query(UserOrder)
-            .filter(
-                UserOrder.user_id == source_user_id,
-                UserOrder.status == OrderStatus.COMPLETED
-            )
-            .order_by(UserOrder.created_at.desc())
-            .first()
+    # Fetch last completed order of source user (the one being referred)
+    source_order = (
+        db.query(UserOrder)
+        .filter(
+            UserOrder.user_id == source_user_id,
+            UserOrder.status == OrderStatus.COMPLETED
         )
-        if not source_order:
-            raise Exception("source_user_no_completed_order")
+        .order_by(UserOrder.created_at.desc())
+        .first()
+    )
 
-        # --- CASE 1: ADMIN / EMPLOYEE (fixed credit, no % logic) ---
-        if user.role in [RoleTypeEnum.ADMIN, RoleTypeEnum.EMPLOYEE]:
+    if not source_order:
+        raise Exception("source_user_no_completed_order")
+
+    # --- CASE 1: ADMIN / EMPLOYEE (your business customers) ---
+    if user.role in [RoleTypeEnum.ADMIN, RoleTypeEnum.EMPLOYEE]:
+        if source_order.type == OrderType.REGISTRATION:  # ✅ only for first paid plan
             return 150.0, credit_type
+        return 0.0, credit_type  # ❌ no credits on renewals/add-ons
 
-        # --- CASE 2: PLATFORM ADMIN ---
-        if user.role == RoleTypeEnum.PLATFORM_ADMIN:
-            if source_order.type == OrderType.REGISTRATION:  # new user plan
-                percentage = 0.25
-            else:  # add-ons or renewals
-                percentage = 0.10
-            return round(source_order.final_amount * percentage, 2), CreditType.REFERRAL_PLATFORM
+    # --- CASE 2: PLATFORM ADMIN ---
+    if user.role == RoleTypeEnum.PLATFORM_ADMIN:
+        if source_order.type == OrderType.REGISTRATION:
+            percentage = 0.25
+        else:  # add-ons or renewals
+            percentage = 0.10
+        return round(source_order.final_amount * percentage, 2), CreditType.REFERRAL_PLATFORM
 
-        # --- CASE 3: SALES ---
-        if user.role == RoleTypeEnum.SALES:
-            if source_order.type == OrderType.REGISTRATION:
-                percentage = 0.20
-            else:  # add-ons or renewals
-                percentage = 0.05
-            return round(source_order.final_amount * percentage, 2), CreditType.REFERRAL_PLATFORM
+    # --- CASE 3: SALES ---
+    if user.role == RoleTypeEnum.SALES:
+        if source_order.type == OrderType.REGISTRATION:
+            percentage = 0.20
+        else:  # add-ons or renewals
+            percentage = 0.05
+        return round(source_order.final_amount * percentage, 2), CreditType.REFERRAL_PLATFORM
 
-        # --- Default ---
-        return 0.0, credit_type
-
-    # default
+    # --- Default ---
     return 0.0, credit_type
 
 def apply_credit(db: Session, user_id: int, source_user_id: int, amount: float, credit_type: CreditType, meta: dict):

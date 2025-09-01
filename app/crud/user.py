@@ -239,28 +239,22 @@ def get_user_profile_data(db: Session, user: User):
     if user.role.lower() == RoleTypeEnum.ADMIN:
         user_plan = db.query(UserPlan).filter(
             UserPlan.user_id == user.id,
-            UserPlan.status == PlanStatus.ACTIVE
-        ).first()
+        ).order_by(UserPlan.created_at.desc()).first()
 
         now = datetime.now(timezone.utc)
 
         # ✅ If plan exists, check expiration
         if user_plan:
-            if user_plan.end_date and user_plan.end_date < now:
-                # Update plan status to expired
-                user_plan.status = PlanStatus.EXPIRED
-                db.commit()
-                db.refresh(user_plan)
-            else:
-                # ✅ Plan is valid and active
-                plan_data = {
-                    "plan_name": user_plan.plan.name if user_plan.plan else None,
-                    "start_date": str(user_plan.start_date),
-                    "end_date": str(user_plan.end_date),
-                    "is_trial": user_plan.is_trial,
-                    "status": user_plan.status,
-                    "payment_id": str(user_plan.payment_id) if user_plan.payment_id else None
-                }
+            plan_data = {
+                "plan_name": user_plan.plan.name if user_plan.plan else None,
+                "start_date": str(user_plan.start_date),
+                "end_date": str(user_plan.end_date),
+                "is_trial": user_plan.is_trial,
+                "status": user_plan.status,
+                "payment_id": str(user_plan.payment_id) if user_plan.payment_id else None
+            }
+                
+                
         
     user.password = None
     credits = 0
