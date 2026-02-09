@@ -1,7 +1,7 @@
 # models/contact.py
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, Numeric, String, ForeignKey, Text, Boolean, TIMESTAMP, UniqueConstraint,
+    Column, Index, Integer, Numeric, String, ForeignKey, Text, Boolean, TIMESTAMP, UniqueConstraint,
     DateTime, Table
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -184,3 +184,61 @@ class BusinessContactLedger(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     business_contact = relationship("BusinessContact", back_populates="ledgers")
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    business_id = Column(Integer, nullable=False, index=True)
+
+    # Lightweight identity (pre-contact)
+    phone_number = Column(String, nullable=True, index=True)
+    email = Column(String, nullable=True, index=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+
+    # Link to contact after conversion
+    business_contact_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("business_contacts.id"),
+        nullable=True
+    )
+
+    # Lead metadata
+    source = Column(String, nullable=True, index=True)
+    status = Column(
+        String,
+        nullable=False,
+        default="new"
+    )  # new, contacted, qualified, converted, lost
+
+    assigned_to = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True
+    )
+
+    # Optional intelligence (future use)
+    score = Column(Integer, default=0)
+
+    # Audit
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationships
+    business_contact = relationship("BusinessContact")
+    assigned_user = relationship("User")
+
+    __table_args__ = (
+        Index("idx_leads_business_status", "business_id", "status"),
+        Index("idx_leads_assigned_status", "assigned_to", "status"),
+    )
+

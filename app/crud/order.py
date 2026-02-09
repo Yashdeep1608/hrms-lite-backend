@@ -28,7 +28,7 @@ from app.schemas.cart import AddToCart, AssignCartContact, CartEntities
 from sqlalchemy.orm import joinedload
 from app.schemas.contact import ContactCreate
 from app.schemas.order import OrderListFilters, OrderStatusUpdateRequest, PayNowRequest, PlaceOrderRequest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright # type: ignore
 
 def calculate_cart_prices(db:Session,item, quantity: int = 1, item_type: str = "product"):
     quantity = max(quantity, 1)
@@ -189,15 +189,44 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
         if not product:
             raise ValueError(f"Product {product_id} not found")
 
-        # Sum available quantity from all batches
-        available_qty = (
-            db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
-            .filter(ProductBatch.product_id == product_id, ProductBatch.quantity > 0, ProductBatch.is_expired == False)
-            .scalar()
-        )
+        if product.is_manufactured:
+            # validate raw ingredients instead of product stock
+            for recipe_item in product.recipe_items:
+                required_qty = total_qty * (recipe_item.quantity) 
 
-        if available_qty < total_qty:
-            raise ValueError(f"Insufficient stock for product: {product.name} (Available: {available_qty}, Required: {total_qty})")
+                available_qty = (
+                    db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+                    .filter(
+                        ProductBatch.product_id == recipe_item.ingredient_id,
+                        ProductBatch.quantity > 0,
+                        ProductBatch.is_expired == False,
+                    )
+                    .scalar()
+                )
+
+                if available_qty < required_qty:
+                    ingredient = db.query(Product).get(recipe_item.ingredient_id)
+                    raise ValueError(
+                        f"Insufficient stock for ingredient: {ingredient.name} "
+                        f"(Available: {available_qty}, Required: {required_qty})"
+                    )
+        else:
+            # normal retail validation
+            available_qty = (
+                db.query(func.coalesce(func.sum(ProductBatch.quantity), 0))
+                .filter(
+                    ProductBatch.product_id == product_id,
+                    ProductBatch.quantity > 0,
+                    ProductBatch.is_expired == False,
+                )
+                .scalar()
+            )
+
+            if available_qty < total_qty:
+                raise ValueError(
+                    f"Insufficient stock for product: {product.name} "
+                    f"(Available: {available_qty}, Required: {total_qty})"
+                )
 
 
     # 3. Validate service capacities
@@ -271,7 +300,21 @@ def reduce_stock_for_order(db: Session, order_id: int, cart_id: int):
         date = get_effective_date(item)
 
         if item.item_type == "product":
-            reduce_product_stock(item.item_id, item.quantity)
+            product = db.query(Product).get(item.item_id)
+
+            if product.is_manufactured:
+                for recipe_item in product.recipe_items:
+                    total_required_qty = item.quantity * (recipe_item.quantity)
+                    reduce_product_stock(                        
+                        product_id=recipe_item.ingredient_id,
+                        quantity=total_required_qty,
+                        order_id=order_id,
+                    )
+            else:
+                reduce_product_stock(
+                    product_id=item.item_id,
+                    quantity=item.quantity,
+                )
 
         elif item.item_type == "service":
             log_service_booking(item.item_id, item.quantity, date)
@@ -430,6 +473,7 @@ def get_entities(db: Session, payload: CartEntities, current_user: User):
                 Product.tax_rate,
                 Product.hsn_code,
                 Product.image_url,
+                Product.is_manufactured,
                 func.coalesce(
                     func.sum(
                         case(
@@ -549,30 +593,31 @@ def add_to_cart(db: Session, payload: AddToCart, current_user: User = None):
 
         # Product Quantity Check
         if item_type == 'product':
-            available_qty = (
-                db.query(
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (ProductBatch.is_expired == False, ProductBatch.quantity),
-                                else_=0
-                            )
-                        ),
-                        0
+            if not item.is_manufactured:
+                available_qty = (
+                    db.query(
+                        func.coalesce(
+                            func.sum(
+                                case(
+                                    (ProductBatch.is_expired == False, ProductBatch.quantity),
+                                    else_=0
+                                )
+                            ),
+                            0
+                        )
                     )
+                    .filter(ProductBatch.product_id == item.id)
+                    .scalar()
                 )
-                .filter(ProductBatch.product_id == item.id)
-                .scalar()
-            )
 
-            # Make sure it's not None
-            available_qty = available_qty or 0
+                # Make sure it's not None
+                available_qty = available_qty or 0
 
-            # Adjust quantity based on available stock
-            quantity = min(quantity, available_qty)
+                # Adjust quantity based on available stock
+                quantity = min(quantity, available_qty)
 
-            if quantity <= 0:
-                raise ValueError("Requested quantity is not available in stock")
+                if quantity <= 0:
+                    raise ValueError("Requested quantity is not available in stock")
         else:
             quantity = 1  # Only 1 allowed for service/combo
 

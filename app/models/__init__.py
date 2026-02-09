@@ -1,5 +1,4 @@
 # app/models/__init__.py
-
 from .role import *
 from .user import *
 from .business import *
@@ -30,4 +29,5 @@ from .supplier import *
 from .motivation import *
 from .webhook import *
 from .learning import *
+from .importjob import *
 # add all your models here for easy import elsewhere

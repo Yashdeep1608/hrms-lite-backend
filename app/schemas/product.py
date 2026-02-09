@@ -27,7 +27,11 @@ class ProductImageCreate(BaseModel):
     media_type: str  # "image", "video", etc.
 
 
-# ---------- Product Create ----------
+class IngredientItem(BaseModel):
+    ingredient_id: int
+    quantity: float
+    wastage_percent: Optional[float] = 0.0  # optional, default 0%
+
 class ProductBase(BaseModel):
     parent_product_id: Optional[int] = None
     is_variant: Optional[bool] = False
@@ -61,6 +65,8 @@ class ProductBase(BaseModel):
     manufacturer: Optional[str] = None
     origin_country: Optional[str] = None
     
+    is_manufactured:Optional[bool] = False  # True = use recipe
+    
     packed_date: Optional[date] = None
     expiry_date: Optional[date] = None
     purchase_price: Optional[float] = None
@@ -71,6 +77,7 @@ class ProductCreate(ProductBase):
     images: Optional[List[ProductImageCreate]] = []
     custom_field_values: Optional[List[ProductCustomFieldValueCreate]] = []
     variants: Optional[List["ProductCreate"]] = []  # recursive for variant children
+    ingredients: Optional[List[IngredientItem]] = []  # for manufactured products
 
 
 ProductCreate.model_rebuild()  # For recursive references

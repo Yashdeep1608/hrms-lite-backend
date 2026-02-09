@@ -125,5 +125,6 @@
   "checkout_success": "Checkout completed successfully.",
   "payment_success": "Payment completed successfully.",
   "order_placed": "Order has been placed successfully.",
-  "order_status_updated": "Order status updated successfully."
+  "order_status_updated": "Order status updated successfully.",
+  "import_process_started": "Import process has been started successfully."
 }

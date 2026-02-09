@@ -56,6 +56,8 @@ class Product(Base):
     manufacturer = Column(String(255), nullable=True)
     origin_country = Column(String(10), nullable=True)
 
+    is_manufactured = Column(Boolean, default=False)  # True = use recipe
+
     # Audit
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -92,6 +94,19 @@ class ProductBatch(Base):
 
     product = relationship("Product", back_populates="batches")
     stock_logs = relationship("ProductStockLog", back_populates="batch", cascade="all, delete-orphan")
+
+class ProductRecipe(Base):
+    __tablename__ = "product_recipes"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # finished product
+    ingredient_id = Column(Integer, ForeignKey("products.id"), nullable=False)  # raw material
+    quantity = Column(Numeric(10, 2), nullable=False)  # e.g. 100 (grams, ml, pcs)
+    wastage_percent = Column(Numeric(5,2), default=0.0)  # e.g. 5% prep loss
+
+    # Relationships
+    product = relationship("Product", foreign_keys=[product_id], backref="recipe_items")
+    ingredient = relationship("Product", foreign_keys=[ingredient_id])
 
 class ProductPackOption(Base):
     __tablename__ = "product_pack_options"

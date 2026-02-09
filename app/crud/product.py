@@ -105,7 +105,9 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
        
         brand=inherit("brand"),
         manufacturer=inherit("manufacturer"),
-        origin_country=product_in.origin_country or "India"
+        origin_country=product_in.origin_country or "India",
+
+        is_manufactured=product_in.is_manufactured or False
     )
 
     db.add(product)
@@ -164,6 +166,16 @@ def create_product(db: Session, product_in: ProductCreate, current_user: User):
             created_by=current_user.id if current_user.id else None,
             notes=f"Product added manually from product {product.sku}"
         )
+    # ---- NEW: Create ProductRecipe for manufactured products ----
+    if product.is_manufactured and product_in.ingredients:
+        for ingredient in product_in.ingredients:
+            db.add(ProductRecipe(
+                product_id=product.id,
+                ingredient_id=ingredient.ingredient_id,
+                quantity=ingredient.quantity,
+                wastage_percent=ingredient.wastage_percent or 0.0
+            ))
+
     # Recursively create variants
     if product_in.is_variant:
         for variant_data in product_in.variants or []:
@@ -191,7 +203,7 @@ def update_product(db: Session, product_id: int, product_in: ProductUpdate, curr
         "tags", "selling_price", "discount_type", "discount_value", "max_discount",
         "include_tax", "tax_rate","hsn_code" ,"category_id", "subcategory_path",
         "base_unit", "package_type", "unit_weight", "unit_volume", "dimensions",
-        "brand", "manufacturer", "origin_country"
+        "brand", "manufacturer", "origin_country",'is_manufactured'
     ]
 
     if not product_in.discount_type:
@@ -224,6 +236,19 @@ def update_product(db: Session, product_id: int, product_in: ProductUpdate, curr
                 product_id=product.id,
                 field_id=cfv['field_id'],
                 value=str(cfv['value']) or None
+            ))
+            
+    # ----Update ProductRecipe for manufactured products ----
+    if product.is_manufactured and "ingredients" in update_data:
+        # Remove old recipe items
+        db.query(ProductRecipe).filter(ProductRecipe.product_id == product.id).delete()
+        # Add new recipe items
+        for ingredient in update_data["ingredients"]:
+            db.add(ProductRecipe(
+                product_id=product.id,
+                ingredient_id=ingredient['ingredient_id'],
+                quantity=ingredient['quantity'],
+                wastage_percent=ingredient.get('wastage_percent', 0.0)
             ))
 
     # Commit changes
@@ -386,6 +411,7 @@ def delete_product(db: Session, product_id: int):
     product.is_deleted = True
     product.is_active = False  # Optionally deactivate instead of hard delete
     product.is_online = False
+    
     db.commit()
     db.refresh(product)
     return product
