@@ -8,8 +8,7 @@ from app.models import User
 from app.db.session import get_db
 from app.helpers.translator import Translator
 from app.crud import user as crud_user
-from app.models.user import UserTourProgress
-from app.schemas.user import ChangePassword, UserUpdate, VerifyOtp
+from app.schemas.user import ChangePassword, UserUpdate
 from fastapi.encoders import jsonable_encoder
 
 translator = Translator()
