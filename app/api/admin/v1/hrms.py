@@ -30,14 +30,22 @@ def create_employee(
     lang = get_lang_from_request(request)
 
     try:
-        employee = Employee(**data.model_dump())
+        employee_code = generate_employee_code(db)
+
+        employee = Employee(
+            employee_code=employee_code,
+            full_name=data.full_name,
+            email=data.email,
+            department=data.department
+        )
+
         db.add(employee)
         db.commit()
         db.refresh(employee)
 
         return ResponseHandler.success(
             data=jsonable_encoder(employee),
-            message="employee_created"
+            message="Employee created successfully"
         )
 
     except IntegrityError:
@@ -176,3 +184,14 @@ def get_attendance(
             message=translator.t("something_went_wrong", lang),
             error=str(e)
         )
+
+def generate_employee_code(db: Session) -> str:
+    last_employee = db.query(Employee).order_by(Employee.id.desc()).first()
+
+    if not last_employee:
+        return "EMP001"
+
+    last_number = int(last_employee.employee_code.replace("EMP", ""))
+    new_number = last_number + 1
+
+    return f"EMP{new_number:03d}"
