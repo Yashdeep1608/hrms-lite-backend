@@ -1,8 +1,8 @@
-"""Update Cart Items
+"""add employee and attendance
 
-Revision ID: f5f476a5adab
-Revises: fa5da52ddae5
-Create Date: 2025-08-19 20:28:44.975264
+Revision ID: 50678f3bba17
+Revises: ef3e8e7f8d8a
+Create Date: 2026-02-19 13:00:01.876888
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'f5f476a5adab'
-down_revision: Union[str, None] = 'fa5da52ddae5'
+revision: str = '50678f3bba17'
+down_revision: Union[str, None] = 'ef3e8e7f8d8a'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
