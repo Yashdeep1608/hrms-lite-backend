@@ -1,15 +1,11 @@
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordRequestForm
 from app.helpers.utils import get_lang_from_request
-from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
-from app.models.plan import Plan
-from app.schemas.user import SendOtp, UserCreate, ForgetPassword, ResetPassword, UserUpdate, VerifyOtp
+from app.models.enums import OtpTypeEnum, RoleTypeEnum
+from app.schemas.user import SendOtp, ForgetPassword, ResetPassword, VerifyOtp
 from app.crud import user as crud_user
-from app.crud import business as crud_business
 from app.db.session import get_db
 from app.core.security import *
-from app.services.messaging import gupshup as gupshup
 from app.helpers.response import ResponseHandler  # import your custom response handler
 from app.helpers.translator import Translator
 from fastapi.encoders import jsonable_encoder # type: ignore
@@ -45,19 +41,13 @@ def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
             user = crud_user.get_user_by_email_or_phone(db, payload.phone_number)
             if user:
                 access_token = create_access_token(data={"sub": str(user.id)})
-                if user.is_active and user.business.is_active:
+                if user.is_active:
                     return ResponseHandler.success(
                         data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
                         message=translator.t("user_exists", lang),
                         code=201
                     )
-                if user.is_active and not user.business.is_active:
-                    return ResponseHandler.success(
-                        data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
-                        message=translator.t("user_exists", lang),
-                        code=202
-                    )
-                elif not user.is_active and not user.business.is_active:
+                elif not user.is_active:
                     return ResponseHandler.success(
                         data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
                         message=translator.t("user_exists", lang),
@@ -66,13 +56,13 @@ def send_otp(request: Request, payload: SendOtp, db: Session = Depends(get_db)):
 
         new_otp = crud_user.create_otp_for_user(db=db,otp_type=payload.otp_type,user=user,isd_code=payload.isd_code,phone_number=payload.phone_number)
         
-        sent_otp = gupshup.send_whatsapp_otp_gupshup(payload.isd_code,payload.phone_number,new_otp.otp)
-        # crud_user.mark_otp_as_sent(db, new_otp)
-        if sent_otp:
-            crud_user.mark_otp_as_sent(db, new_otp)
-        else:
-            logger.error(f"Failed to send OTP via WhatsApp to {payload.isd_code}{payload.phone_number}")
-            return ResponseHandler.bad_request(message=translator.t("otp_sent_failed", lang))
+        # sent_otp = gupshup.send_whatsapp_otp_gupshup(payload.isd_code,payload.phone_number,new_otp.otp)
+        crud_user.mark_otp_as_sent(db, new_otp)
+        # if sent_otp:
+        #     crud_user.mark_otp_as_sent(db, new_otp)
+        # else:
+        #     logger.error(f"Failed to send OTP via WhatsApp to {payload.isd_code}{payload.phone_number}")
+        #     return ResponseHandler.bad_request(message=translator.t("otp_sent_failed", lang))
         return ResponseHandler.success(
             message=translator.t("otp_resent", lang),
             data={"user_id": new_otp.user_id}
@@ -97,8 +87,6 @@ def verify_otp(payload: VerifyOtp, request: Request, db: Session = Depends(get_d
                     message=translator.t("user_not_found", lang)
                 )
         elif payload.otp_type == OtpTypeEnum.Register:
-            business = crud_business.create_business(db, payload.isd_code,payload.phone_number)
-            user = crud_user.create_user(db,payload.isd_code,payload.phone_number,business.id )
             access_token = create_access_token(data={"sub": str(user.id)})
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer","user":jsonable_encoder(user)},
@@ -125,48 +113,14 @@ def login_user(
 ):
     lang = get_lang_from_request(request)
     try:
-        user = crud_user.get_user_by_email_or_phone(db, form_data.phone_number, True)
+        user = crud_user.get_user_by_email_or_phone(db, form_data.phone_number)
         if not user or not (verify_username_password(form_data.password, user.password)):
             return ResponseHandler.unauthorized(message=translator.t("invalid_credentials", lang))
 
         access_token = create_access_token(data={"sub": str(user.id)})
 
-        # Case 0: Internal roles → always allow
-        INTERNAL_ROLES = {RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN,RoleTypeEnum.SALES,RoleTypeEnum.DEVELOPER,RoleTypeEnum.SUPPORT}
-
-        if user.role in INTERNAL_ROLES:
-            return ResponseHandler.success(
-                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("login_success", lang),
-                code=200
-            )
-
-        # Case 1: User active, business active, but no active plan
-        if user.is_active and user.business.is_active and not user.active_plan:
-            return ResponseHandler.success(
-                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("login_success", lang),
-                code=201
-            )
-
-        # Case 2: User active, business active, has active plan
-        elif user.is_active and user.business.is_active and user.active_plan:
-            return ResponseHandler.success(
-                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("login_success", lang),
-                code=200
-            )
-
-        # Case 3: User active, business inactive
-        elif user.is_active and not user.business.is_active:
-            return ResponseHandler.success(
-                data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
-                message=translator.t("user_exists", lang),
-                code=202
-            )
-
         # Case 4: User inactive
-        elif not user.is_active:
+        if not user.is_active:
             return ResponseHandler.success(
                 data={"access_token": access_token, "token_type": "bearer", "user": jsonable_encoder(user)},
                 message=translator.t("user_exists", lang),
@@ -192,13 +146,10 @@ def forgot_password(request: Request,payload: ForgetPassword, db: Session = Depe
             return ResponseHandler.bad_request(message=translator.t("user_not_found", lang))
 
         new_otp = crud_user.create_otp_for_user(db,OtpTypeEnum.ForgetPassword, user)
-        sent_otp = gupshup.send_whatsapp_otp_gupshup(user.isd_code,user.phone_number,new_otp.otp)
+        # sent_otp = gupshup.send_whatsapp_otp_gupshup(user.isd_code,user.phone_number,new_otp.otp)
         # crud_user.mark_otp_as_sent(db, new_otp)
-        if sent_otp:
-            crud_user.mark_otp_as_sent(db, new_otp)
-        else:
-            logger.error(f"Failed to send OTP via WhatsApp to {user.isd_code}{user.phone_number}")
-            return ResponseHandler.bad_request(message=translator.t("otp_sent_failed", lang),)
+        crud_user.mark_otp_as_sent(db, new_otp)
+        
         return ResponseHandler.success(message=translator.t("otp_sent", lang), data={"user_id": new_otp.user_id})
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("forget_password_error",lang),error=str(e))
@@ -215,12 +166,3 @@ def reset_password(request: Request,payload: ResetPassword, db: Session = Depend
         return ResponseHandler.success(message=translator.t("password_reset_success", lang))
     except Exception as e:
         return ResponseHandler.bad_request(message=translator.t("reset_password_failed",lang),error=str(e))
-
-@router.get("/get-plans")
-def get_plans(request: Request,db: Session = Depends(get_db)):
-    lang = get_lang_from_request(request)
-    try:
-        plans = db.query(Plan).all()
-        return ResponseHandler.success(message=translator.t("plans_retrieved", lang),data=jsonable_encoder(plans))
-    except Exception as e:
-        return ResponseHandler.bad_request(message=translator.t("plans_retrieval_failed", lang), error=str(e))

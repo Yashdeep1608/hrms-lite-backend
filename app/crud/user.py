@@ -3,116 +3,72 @@ import random
 import string
 from typing import Optional
 from sqlalchemy.orm import Session
-from app.models.user import User, UserCredit, UserPlan
+from app.models.user import User
 from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword, CreateDownlineUser, UpdatePermission,UserCreate, UserOut, UserUpdate, VerifyOtp
+from app.schemas.user import ChangePassword, UserUpdate, VerifyOtp
 from app.core.security import *
-from app.models.enums import OtpTypeEnum, PlanStatus, RoleTypeEnum
-from app.models.permission import Permission  # Adjust import if needed
-from app.models.user_permission import UserPermission  # Adjust import if needed
-from app.models.business import Business  # Adjust import if needed
-from app.schemas.business import BusinessOut
+from app.models.enums import RoleTypeEnum
 from app.core.config import settings
 from sqlalchemy.orm import joinedload
 
-INTERNAL_ROLES = {RoleTypeEnum.SUPERADMIN,RoleTypeEnum.PLATFORM_ADMIN,RoleTypeEnum.SALES,RoleTypeEnum.DEVELOPER,RoleTypeEnum.SUPPORT}
+def get_user_by_email_or_phone(db:Session,data:str):
+    return db.query(User).filter(
+                    ((User.username == data) | (User.phone_number == data)),
+                    User.is_deleted == False
+                )
+            
 
-def generate_unique_referral_code(db: Session, length: int = 8) -> str:
-    characters = string.ascii_uppercase + string.digits
-    while True:
-        code = ''.join(random.choices(characters, k=length))
-        existing_user = db.query(User).filter(User.referral_code == code).first()
-        if not existing_user:
-            return code
-# Get User by user_name
-def get_user_by_username(db: Session, username: str):
-    return db.query(User).options(
-        joinedload(User.plans),
-        joinedload(User.business)
-    ).filter(
-        User.username == username,
-        User.is_deleted == False,
-    ).first()
 def get_user_by_id(db: Session, user_id: int):
     return db.query(User).filter(
         User.id == user_id,
         User.is_deleted == False,
     ).first()
 # Create Ne User
-def create_user(db: Session, isd_code: str, phone_number: str, business_id: int):
+def create_user(
+    db: Session,
+    isd_code: str,
+    phone_number: str,
+    role: RoleTypeEnum,
+    first_name: str = None,
+    last_name: str = None,
+    email: str = None,
+):
     """
-    Create a placeholder user after OTP verification with minimal info.
+    Create a basic user after OTP verification.
+    Role can be SUPERADMIN, ADMIN, or EMPLOYEE.
     """
+
     # Generate temporary username
-    temp_username = "user_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    temp_username = "user_" + "".join(
+        random.choices(string.ascii_lowercase + string.digits, k=6)
+    )
 
-    # Dummy password (hashed)
-    temp_password = get_password_hash("temp_password123")
-
-    # Generate referral code
-    referral_code = generate_unique_referral_code(db)
+    # Generate temporary password (hashed)
+    temp_password = get_password_hash("Temp@1234")
 
     new_user = User(
-        first_name=f"User-{phone_number}",
-        last_name="",
-        email="your@email.com",
+        first_name=first_name or f"User-{phone_number}",
+        last_name=last_name or "",
+        email=email,
         isd_code=isd_code,
         phone_number=phone_number,
         username=temp_username,
         password=temp_password,
-        referral_code=referral_code,
-        role=RoleTypeEnum.ADMIN,
-        business_id=business_id,
+        role=role.value,  # Store enum value
+        is_phone_verified=True,
+        is_email_verified=False,
+        is_active=True,
+        is_deleted=False,
         profile_image=None,
-        parent_user_id=None,
-        referred_by=None,
-        is_phone_verified = True,
-        is_active = False,
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
     return new_user
-# Get User by email/phone
-def get_user_by_email_or_phone(db: Session, email_or_phone: str, is_active: bool = False):
-    query = (
-        db.query(User)
-        .options(joinedload(User.business))
-        .filter(
-            ((User.username == email_or_phone) | (User.phone_number == email_or_phone)),
-            User.is_deleted == False
-        )
-    )
-    if is_active:
-        query = query.filter(User.is_active == True)
 
-        user = query.first()
-        
-        if user.role not in INTERNAL_ROLES:
-            plan_query = db.query(UserPlan)
-            if user.role == RoleTypeEnum.ADMIN and user.parent_user_id is None:
-                plan_query = plan_query.filter(UserPlan.user_id == user.id)
-            else:
-                plan_query = plan_query.filter(UserPlan.user_id == user.parent_user_id)
-            
-            active_plan = plan_query.order_by(UserPlan.created_at.desc()).first()
-            # 🔄 Update expired plans
-            now = datetime.now(timezone.utc)
-            if active_plan and active_plan.end_date and active_plan.end_date < now and active_plan.status == PlanStatus.ACTIVE:
-                active_plan.status = PlanStatus.EXPIRED
-                db.commit()
-                db.refresh(active_plan)
 
-            user.active_plan = active_plan if active_plan else None
-
-        return user
-    else:
-        user = query.first()
-        if not user:
-            return None
-        return user
-# Create OTP for User
 def create_otp_for_user(
     db: Session,
     otp_type: str,
@@ -219,57 +175,6 @@ def soft_delete_user(db: Session, user: User):
     user.is_active = False
     user.is_deleted = True
     db.commit()
-# Complete User Data
-def get_user_profile_data(db: Session, user: User):
-    # Fetch business
-    business = db.query(Business).filter(
-        Business.id == user.business_id,
-        Business.is_deleted == False
-    ).first()
-    combined_keys = None
-    if user.role.lower() != RoleTypeEnum.SUPERADMIN:
-        # Get user-specific permission overrides from new structure
-        user_permission_row = db.query(UserPermission).filter(
-            UserPermission.user_id == user.id
-        ).first()
-        combined_keys = user_permission_row.permission_keys if user_permission_row and user_permission_row.permission_keys else []
-    plan_data = None
-
-    # For Admins, check active user plan
-    if user.role.lower() == RoleTypeEnum.ADMIN:
-        user_plan = db.query(UserPlan).filter(
-            UserPlan.user_id == user.id,
-        ).order_by(UserPlan.created_at.desc()).first()
-
-        now = datetime.now(timezone.utc)
-
-        # ✅ If plan exists, check expiration
-        if user_plan:
-            plan_data = {
-                "plan_name": user_plan.plan.name if user_plan.plan else None,
-                "start_date": str(user_plan.start_date),
-                "end_date": str(user_plan.end_date),
-                "is_trial": user_plan.is_trial,
-                "status": user_plan.status,
-                "payment_id": str(user_plan.payment_id) if user_plan.payment_id else None
-            }
-                
-                
-        
-    user.password = None
-    credits = 0
-    creditsData = get_user_credits(db,user)
-    if not creditsData:
-        credits = 0
-    else:
-        credits = creditsData.balance_after if creditsData.balance_after and creditsData.balance_after > 0 else 0
-    return {
-        "user": user,
-        "business": business,
-        "permissions": combined_keys,
-        "plan":plan_data,
-        "credits":credits
-    }
 # Update User
 def update_user(db: Session, user_id: int, data: UserUpdate):
     try:
@@ -281,16 +186,12 @@ def update_user(db: Session, user_id: int, data: UserUpdate):
 
         # Update all fields except referral_code
         for field, value in data_dict.items():
-            if field != "referral_code" and hasattr(user, field):
+            if hasattr(user, field):
                 setattr(user, field, value)
 
         if data.password:
             user.password = get_password_hash(data.password)
-        # Handle referral_code separately (only for referred_by assignment)
-        if data.referral_code:
-            source_user = db.query(User).filter(User.referral_code == data.referral_code).first()
-            if source_user:
-                user.referred_by = source_user.id
+        
 
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -314,96 +215,3 @@ def changePassword(db: Session, payload:ChangePassword):
     except Exception as e:
         db.rollback()
         raise e   
-# Get User by Referral Code
-def get_user_by_referral_code(db: Session, referral_code: str):
-    try:
-        user = db.query(User.id).filter(User.referral_code == referral_code).first()
-        if not user:
-            raise Exception("referral_code_invalid")
-        return user
-    except Exception as e:
-        raise e 
-# Get Platform's Users
-def get_platform_user_list(db:Session,user:User):
-    query = db.query(User).filter(User.role.notin_([RoleTypeEnum.ADMIN, RoleTypeEnum.EMPLOYEE]))
-
-    if user.role == RoleTypeEnum.SUPERADMIN:
-        # See all users except Admin and Employee
-        users = query.all()
-    elif user.role == RoleTypeEnum.PLATFORM_ADMIN:
-        # Only see users created by this platform admin
-        users = query.filter(User.parent_user_id == user.id).all()
-    else:
-        # No access to platform-level user list
-        users = []
-
-    return users
-# Create Downline Users
-def create_downline_user(db: Session, payload: CreateDownlineUser, current_user: User):
-    # 1. If current user is internal role → skip plan checks
-    if current_user.role in INTERNAL_ROLES:
-        return _create_downline_user(db, payload, current_user)
-
-    # 2. Otherwise → must have active plan
-    active_plan = (
-        db.query(UserPlan)
-        .filter(UserPlan.user_id == current_user.id, UserPlan.status == PlanStatus.ACTIVE)
-        .first()
-    )
-    if not active_plan:
-        raise Exception("You don't have an active plan")
-
-    # 4. Create new user
-    return _create_downline_user(db, payload, current_user)
-def _create_downline_user(db: Session, payload: CreateDownlineUser, current_user: User):
-    referral_code = generate_unique_referral_code(db)
-    hashed_password = get_password_hash(payload.password)
-    temp_username = "user_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
-
-    new_user = User(
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        email=payload.email,
-        isd_code=payload.isd_code,
-        phone_number=payload.phone_number,
-        username=temp_username,
-        password=hashed_password,
-        role=payload.role,
-        business_id=current_user.business_id,
-        parent_user_id=current_user.id,
-        referred_by=None,
-        referral_code=referral_code,
-        is_active=True,
-        is_email_verified=False,
-        is_phone_verified=True,
-    )
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return new_user
-
-#Get Downline
-def get_downline(db:Session,user:User):
-    return db.query(User).filter(User.parent_user_id == user.id , User.is_deleted == False).all()
-
-def update_permissions(db:Session , payload:UpdatePermission):
-    permission = db.query(UserPermission).filter(UserPermission.user_id == payload.user_id).first()
-    if not permission:
-        permission = UserPermission(
-            user_id = payload.user_id,
-            permission_keys = payload.permissions
-        )
-        db.add(permission)
-    
-    permission.permission_keys = payload.permissions
-    db.commit()
-    db.refresh(permission)
-    return permission
-
-def get_permissions(db:Session, user_id):
-    return db.query(UserPermission).filter(UserPermission.user_id == user_id).first()
-
-def get_user_credits(db:Session, current_user:User):
-    return db.query(UserCredit).filter(UserCredit.user_id == current_user.id).order_by(UserCredit.created_at.desc()).first();

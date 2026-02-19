@@ -19,16 +19,9 @@ class Settings(BaseSettings):
     POSTGRES_USER:str
     POSTGRES_PASSWORD:str
     POSTGRES_DB:str
-
-    RAZORPAY_KEY_ID: str
-    RAZORPAY_KEY_SECRET: str
     
     ADMIN_BYPASS_OTP:str
     
-    GUPSHUP_API_KEY:str
-    GUPSHUP_SOURCE_NUMBER:str
-    GUPSHUP_APP_NAME   :str
-
     class Config:
         env_file = ".env"
 
