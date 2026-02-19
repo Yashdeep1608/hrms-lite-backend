@@ -29,4 +29,6 @@ class User(Base):
     last_active_at = Column(DateTime)
     profile_image = Column(String,nullable=True)
 
+    user_otps = relationship("UserOTP", back_populates="users")
+
 

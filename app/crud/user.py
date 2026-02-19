@@ -1,15 +1,9 @@
-from datetime import timedelta, datetime, timezone
 import random
 import string
-from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.user import User
-from app.models.user_otp import UserOTP
-from app.schemas.user import ChangePassword, UserUpdate, VerifyOtp
 from app.core.security import *
 from app.models.enums import RoleTypeEnum
-from app.core.config import settings
-from sqlalchemy.orm import joinedload
 
 def get_user_by_email_or_phone(db:Session,data:str):
     return db.query(User).filter(

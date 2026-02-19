@@ -1,14 +1,9 @@
-from fastapi import APIRouter, Depends, Request, File, UploadFile
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Request
 from app.core.dependencies import get_current_user
 from app.helpers.response import ResponseHandler
-from app.helpers.s3 import upload_file_to_s3
 from app.helpers.utils import get_lang_from_request
 from app.models import User
-from app.db.session import get_db
 from app.helpers.translator import Translator
-from app.crud import user as crud_user
-from app.schemas.user import ChangePassword, UserUpdate
 from fastapi.encoders import jsonable_encoder
 
 translator = Translator()
