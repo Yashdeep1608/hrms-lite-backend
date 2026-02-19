@@ -9,7 +9,7 @@ def get_user_by_email_or_phone(db:Session,data:str):
     return db.query(User).filter(
                     ((User.username == data) | (User.phone_number == data)),
                     User.is_deleted == False
-                )
+                ).first()
             
 
 def get_user_by_id(db: Session, user_id: int):
